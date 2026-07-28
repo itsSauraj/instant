@@ -1,0 +1,170 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.75rem;
+
+  --background: oklch(0.986 0.003 265);
+  --foreground: oklch(0.21 0.02 275);
+
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.02 275);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.02 275);
+
+  --primary: oklch(0.53 0.21 285);
+  --primary-foreground: oklch(0.985 0.005 285);
+
+  --secondary: oklch(0.965 0.008 275);
+  --secondary-foreground: oklch(0.28 0.03 280);
+
+  --muted: oklch(0.965 0.008 275);
+  --muted-foreground: oklch(0.53 0.02 275);
+
+  --accent: oklch(0.95 0.02 285);
+  --accent-foreground: oklch(0.3 0.06 285);
+
+  --destructive: oklch(0.58 0.22 20);
+  --destructive-foreground: oklch(0.985 0.01 20);
+
+  --success: oklch(0.62 0.16 155);
+  --success-foreground: oklch(0.985 0.01 155);
+
+  --warning: oklch(0.73 0.16 75);
+  --warning-foreground: oklch(0.24 0.05 75);
+
+  --border: oklch(0.916 0.01 275);
+  --input: oklch(0.916 0.01 275);
+  --ring: oklch(0.53 0.21 285);
+}
+
+.dark {
+  --background: oklch(0.16 0.015 275);
+  --foreground: oklch(0.965 0.006 275);
+
+  --card: oklch(0.205 0.018 275);
+  --card-foreground: oklch(0.965 0.006 275);
+  --popover: oklch(0.225 0.02 275);
+  --popover-foreground: oklch(0.965 0.006 275);
+
+  --primary: oklch(0.68 0.18 288);
+  --primary-foreground: oklch(0.17 0.04 288);
+
+  --secondary: oklch(0.27 0.022 275);
+  --secondary-foreground: oklch(0.965 0.006 275);
+
+  --muted: oklch(0.27 0.022 275);
+  --muted-foreground: oklch(0.7 0.02 275);
+
+  --accent: oklch(0.31 0.045 285);
+  --accent-foreground: oklch(0.95 0.02 285);
+
+  --destructive: oklch(0.66 0.2 22);
+  --destructive-foreground: oklch(0.15 0.03 22);
+
+  --success: oklch(0.72 0.17 158);
+  --success-foreground: oklch(0.15 0.03 158);
+
+  --warning: oklch(0.8 0.15 78);
+  --warning-foreground: oklch(0.2 0.04 78);
+
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.68 0.18 288);
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    color-scheme: light dark;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    /* Ambient field behind the whole app. Keeps every screen visually related. */
+    background-image:
+      radial-gradient(
+        62rem 62rem at 12% -12%,
+        color-mix(in oklab, var(--primary) 16%, transparent),
+        transparent 62%
+      ),
+      radial-gradient(
+        48rem 48rem at 108% 8%,
+        color-mix(in oklab, var(--primary) 11%, transparent),
+        transparent 60%
+      );
+    background-attachment: fixed;
+  }
+
+  /* GSAP writes to opacity/transform after mount; avoid a first-paint flash. */
+  [data-anim="in"] {
+    opacity: 0;
+  }
+}
+
+@layer utilities {
+  .panel {
+    @apply rounded-xl border bg-card/70 backdrop-blur-xl;
+  }
+
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent) transparent;
+  }
+
+  .scroll-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scroll-slim::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--muted-foreground) 40%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-anim="in"] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
