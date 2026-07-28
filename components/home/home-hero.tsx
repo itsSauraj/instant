@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useGSAP } from "@gsap/react";
 import { ArrowRight, FileUp, Lock, StickyNote, Users, Video } from "lucide-react";
 
+import { ScanInvite } from "@/components/home/scan-invite";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -134,19 +135,26 @@ export function HomeHero() {
 
         <form data-join-form onSubmit={join} className="space-y-2">
           <div className="flex gap-2">
-            <Input
-              value={joinCode}
-              onChange={(event) => {
-                setJoinCode(event.target.value);
-                setJoinError(null);
-              }}
-              placeholder="Invite link or code"
-              aria-label="Invite link or session code"
-              aria-invalid={Boolean(joinError)}
-              autoComplete="off"
-              spellCheck={false}
-              className="font-mono"
-            />
+            <div className="relative flex-1">
+              <Input
+                value={joinCode}
+                onChange={(event) => {
+                  setJoinCode(event.target.value);
+                  setJoinError(null);
+                }}
+                placeholder="Invite link or code"
+                aria-label="Invite link or session code"
+                aria-invalid={Boolean(joinError)}
+                autoComplete="off"
+                spellCheck={false}
+                // Room for the scan button so a long code never runs under it.
+                className="pr-10 font-mono"
+              />
+              <ScanInvite
+                iconOnly
+                className="absolute top-1/2 right-1 -translate-y-1/2"
+              />
+            </div>
             <Button type="submit" variant="secondary">
               Join
             </Button>
@@ -157,7 +165,7 @@ export function HomeHero() {
             </p>
           ) : (
             <p className="text-muted-foreground text-xs">
-              Codes look like <span className="font-mono">k3f9-mq2t-8xbv-7rn0</span>
+              Paste a code, or scan one with the camera icon
             </p>
           )}
         </form>
