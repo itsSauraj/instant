@@ -112,7 +112,7 @@ export function HomeHero() {
           </h1>
 
           <p data-anim="in" className="text-muted-foreground max-w-xl text-pretty sm:text-lg">
-            A session links exactly two browsers. Your data travels directly between them — the
+            A session links exactly two browsers. Your data travels directly between them, the
             server only introduces the pair, then steps out.
           </p>
         </div>

@@ -8,7 +8,7 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Instant — private peer-to-peer sessions",
+  title: "Instant | private peer-to-peer sessions",
   description:
     "Share notes, files and live audio or video directly between two browsers. No accounts, no database, nothing stored on a server.",
   robots: { index: true, follow: false },

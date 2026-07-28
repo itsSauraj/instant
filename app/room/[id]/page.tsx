@@ -4,7 +4,7 @@ import { RoomClient } from "@/components/room/room-client";
 import { isValidRoomId, normalizeRoomId } from "@/lib/ids";
 
 export const metadata = {
-  title: "Instant — session",
+  title: "Instant | Session",
   // Invite links carry the session id, so keep them out of search results.
   robots: { index: false, follow: false },
 };
