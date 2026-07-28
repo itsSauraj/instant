@@ -15,6 +15,26 @@ export const BUFFER_LOW_WATER = 512 * 1024;
 /** Received files are held in memory, so this is a tab-stability limit. */
 export const MAX_RECEIVE_BYTES = 1024 * 1024 * 1024;
 
+/**
+ * Aggregate ceiling on everything a session may hold in memory from incoming
+ * transfers: in-flight chunk buffers plus completed Blobs that have not yet
+ * been released by `dispose()`. `MAX_RECEIVE_BYTES` alone is per-transfer, so
+ * without this a peer could open many offers that each pass the per-transfer
+ * check and OOM the tab in aggregate. 2 GiB still admits two maximum-size
+ * files while staying under the ~3–4 GiB of JS-visible allocations at which
+ * browsers routinely kill a tab.
+ */
+export const MAX_SESSION_RECEIVE_BYTES = 2 * 1024 * 1024 * 1024;
+
+/**
+ * A well-behaved sender streams files strictly one at a time (see
+ * `FileTransferManager.sendFiles`), so it never has more than one incoming
+ * transfer open plus a little offer/done race slack. Anything beyond a
+ * handful is a misbehaving or hostile peer fanning allocations out across
+ * many ids.
+ */
+export const MAX_ACTIVE_INCOMING_TRANSFERS = 4;
+
 /** Generous enough for real code snippets now that notes render markdown. */
 export const MAX_NOTE_LENGTH = 20_000;
 

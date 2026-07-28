@@ -2,7 +2,9 @@ import {
   BUFFER_HIGH_WATER,
   BUFFER_LOW_WATER,
   CHUNK_SIZE,
+  MAX_ACTIVE_INCOMING_TRANSFERS,
   MAX_RECEIVE_BYTES,
+  MAX_SESSION_RECEIVE_BYTES,
   frameChunk,
   readChunk,
   type FileFrame,
@@ -48,7 +50,14 @@ export class FileTransferManager {
   private readonly transfers = new Map<string, Transfer>();
   /** Chunk buffers for in-flight incoming transfers, keyed by remote id. */
   private readonly inbound = new Map<number, Uint8Array[]>();
-  private readonly cancelledOutgoing = new Set<number>();
+  /** Outgoing ids the send loop must abandon, and who asked for it. */
+  private readonly cancelledOutgoing = new Map<number, "local" | "remote">();
+  /**
+   * Bytes currently held from incoming transfers: buffered chunks of active
+   * ones plus the Blobs of completed ones (those stay resident until
+   * `dispose()` revokes their object URLs).
+   */
+  private inboundHeldBytes = 0;
   private nextId = 1;
   private disposed = false;
 
@@ -113,8 +122,21 @@ export class FileTransferManager {
       // Zero-byte files still need to complete, hence the do/while shape.
       while (offset < file.size || (file.size === 0 && offset === 0)) {
         if (this.disposed) return;
-        if (this.cancelledOutgoing.has(id)) {
-          this.finish(transfer, "cancelled", "Cancelled by receiver");
+        const cancelledBy = this.cancelledOutgoing.get(id);
+        if (cancelledBy !== undefined) {
+          // `cancel()` / the remote cancel frame already finished the record
+          // with the right attribution; never overwrite that. Label a
+          // straggler correctly if it somehow was not finished yet.
+          // (Widen: TS narrows `status` to "active" after the assignment
+          // above, but cancel paths mutate it behind our back.)
+          const status = transfer.status as TransferStatus;
+          if (status === "pending" || status === "active") {
+            this.finish(
+              transfer,
+              "cancelled",
+              cancelledBy === "local" ? "Cancelled" : "Cancelled by receiver",
+            );
+          }
           return;
         }
         if (this.channel.readyState !== "open") {
@@ -177,11 +199,11 @@ export class FileTransferManager {
     if (!transfer || transfer.status === "complete") return;
 
     if (transfer.direction === "outgoing") {
-      this.cancelledOutgoing.add(transfer.id);
+      this.cancelledOutgoing.set(transfer.id, "local");
       this.send({ k: "cancel", id: transfer.id, by: "sender", reason: "Cancelled by sender" });
       this.finish(transfer, "cancelled", "Cancelled");
     } else {
-      this.inbound.delete(transfer.id);
+      this.releaseInbound(transfer.id);
       this.send({ k: "cancel", id: transfer.id, by: "receiver", reason: "Cancelled by receiver" });
       this.finish(transfer, "cancelled", "Cancelled");
     }
@@ -212,6 +234,28 @@ export class FileTransferManager {
     if (frame.k === "offer") {
       if (typeof frame.id !== "number" || typeof frame.size !== "number" || frame.size < 0) return;
 
+      // Never trust a peer-supplied path; keep the basename only.
+      const name = sanitizeName(frame.name);
+      const key = this.key("incoming", frame.id);
+
+      const existing = this.transfers.get(key);
+      if (existing) {
+        // A well-behaved sender never reuses an id; accepting would orphan
+        // the previous record and leak its object URL. Only answer with a
+        // cancel frame when the original is finished — while it is still
+        // live, a cancel for this id would abort the original transfer.
+        if (existing.status !== "active" && existing.status !== "pending") {
+          this.send({
+            k: "cancel",
+            id: frame.id,
+            by: "receiver",
+            reason: "Transfer id already used",
+          });
+        }
+        this.callbacks.onError(`Declined "${name}" — the peer reused transfer id ${frame.id}.`);
+        return;
+      }
+
       if (frame.size > MAX_RECEIVE_BYTES) {
         this.send({
           k: "cancel",
@@ -220,20 +264,56 @@ export class FileTransferManager {
           reason: `Larger than the ${formatBytes(MAX_RECEIVE_BYTES)} limit`,
         });
         this.callbacks.onError(
-          `Declined "${frame.name}" — ${formatBytes(frame.size)} exceeds the ${formatBytes(
+          `Declined "${name}" — ${formatBytes(frame.size)} exceeds the ${formatBytes(
             MAX_RECEIVE_BYTES,
           )} receive limit.`,
         );
         return;
       }
 
-      const key = this.key("incoming", frame.id);
+      if (this.inbound.size >= MAX_ACTIVE_INCOMING_TRANSFERS) {
+        this.send({
+          k: "cancel",
+          id: frame.id,
+          by: "receiver",
+          reason: `More than ${MAX_ACTIVE_INCOMING_TRANSFERS} simultaneous transfers`,
+        });
+        this.callbacks.onError(
+          `Declined "${name}" — already receiving ${MAX_ACTIVE_INCOMING_TRANSFERS} files. ` +
+            `Ask the sender to retry once the current transfers finish.`,
+        );
+        return;
+      }
+
+      // Memory this session is already committed to: bytes held right now
+      // (buffered chunks plus completed Blobs awaiting dispose) plus the
+      // still-unreceived remainder of every active incoming transfer.
+      let committed = this.inboundHeldBytes;
+      for (const t of this.transfers.values()) {
+        if (t.direction === "incoming" && t.status === "active") {
+          committed += t.size - t.transferred;
+        }
+      }
+      if (committed + frame.size > MAX_SESSION_RECEIVE_BYTES) {
+        this.send({
+          k: "cancel",
+          id: frame.id,
+          by: "receiver",
+          reason: `Receive memory budget of ${formatBytes(MAX_SESSION_RECEIVE_BYTES)} exhausted`,
+        });
+        this.callbacks.onError(
+          `Declined "${name}" — accepting ${formatBytes(frame.size)} would exceed the ` +
+            `${formatBytes(MAX_SESSION_RECEIVE_BYTES)} this session can hold in memory. ` +
+            `Save your received files and start a new session, then retry.`,
+        );
+        return;
+      }
+
       this.transfers.set(key, {
         id: frame.id,
         key,
         direction: "incoming",
-        // Never trust a peer-supplied path; keep the basename only.
-        name: sanitizeName(frame.name),
+        name,
         size: frame.size,
         mime: frame.mime || "application/octet-stream",
         transferred: 0,
@@ -255,12 +335,14 @@ export class FileTransferManager {
       // `by` describes who initiated it, so the *other* side's record is ours.
       const direction: TransferDirection = frame.by === "sender" ? "incoming" : "outgoing";
       if (direction === "outgoing") {
-        this.cancelledOutgoing.add(frame.id);
+        this.cancelledOutgoing.set(frame.id, "remote");
       } else {
-        this.inbound.delete(frame.id);
+        this.releaseInbound(frame.id);
       }
       const transfer = this.transfers.get(this.key(direction, frame.id));
-      if (transfer && transfer.status !== "complete") {
+      // Only records still running: a record we already finished locally
+      // (e.g. the user's own cancel) keeps its original attribution.
+      if (transfer && (transfer.status === "pending" || transfer.status === "active")) {
         this.finish(transfer, "cancelled", frame.reason ?? "Cancelled by peer");
       }
     }
@@ -276,7 +358,7 @@ export class FileTransferManager {
     if (!chunks || !transfer || transfer.status !== "active") return;
 
     if (transfer.transferred + parsed.data.byteLength > transfer.size) {
-      this.inbound.delete(parsed.transferId);
+      this.releaseInbound(parsed.transferId);
       this.send({
         k: "cancel",
         id: parsed.transferId,
@@ -290,6 +372,7 @@ export class FileTransferManager {
     // Copy: the received buffer is only ours until the next message.
     chunks.push(new Uint8Array(parsed.data));
     transfer.transferred += parsed.data.byteLength;
+    this.inboundHeldBytes += parsed.data.byteLength;
     this.callbacks.onChange();
   }
 
@@ -297,9 +380,9 @@ export class FileTransferManager {
     const chunks = this.inbound.get(id);
     const transfer = this.transfers.get(this.key("incoming", id));
     if (!chunks || !transfer) return;
-    this.inbound.delete(id);
 
     if (transfer.transferred !== transfer.size) {
+      this.releaseInbound(id);
       this.finish(
         transfer,
         "failed",
@@ -308,9 +391,23 @@ export class FileTransferManager {
       return;
     }
 
+    // The chunk buffers become the Blob, which occupies the same bytes, so
+    // `inboundHeldBytes` keeps counting them until dispose() releases it.
+    this.inbound.delete(id);
     const blob = new Blob(chunks as BlobPart[], { type: transfer.mime });
     transfer.url = URL.createObjectURL(blob);
     this.finish(transfer, "complete");
+  }
+
+  /**
+   * Drops an in-flight incoming transfer's chunk buffers and returns their
+   * bytes to the receive budget. Safe to call for ids that hold no buffers.
+   */
+  private releaseInbound(id: number) {
+    const chunks = this.inbound.get(id);
+    if (!chunks) return;
+    this.inbound.delete(id);
+    for (const chunk of chunks) this.inboundHeldBytes -= chunk.byteLength;
   }
 
   private finish(transfer: Transfer, status: TransferStatus, error?: string) {
@@ -327,6 +424,7 @@ export class FileTransferManager {
   failAll(reason: string) {
     for (const transfer of this.transfers.values()) {
       if (transfer.status === "pending" || transfer.status === "active") {
+        if (transfer.direction === "incoming") this.releaseInbound(transfer.id);
         this.finish(transfer, "failed", reason);
       }
     }
@@ -342,6 +440,7 @@ export class FileTransferManager {
     this.transfers.clear();
     this.inbound.clear();
     this.cancelledOutgoing.clear();
+    this.inboundHeldBytes = 0;
   }
 }
 
