@@ -12,12 +12,17 @@ import { HostPanel } from "@/components/room/host-panel";
 import { LobbyOverlay } from "@/components/room/lobby-overlay";
 import { MediaPanel } from "@/components/room/media-panel";
 import { NotesPanel } from "@/components/room/notes-panel";
+import { SoundToggle } from "@/components/room/sound-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToastViewport } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePeerSession } from "@/hooks/use-peer-session";
+import { useSessionNotifications } from "@/hooks/use-session-notifications";
+import { useSessionSounds } from "@/hooks/use-session-sounds";
+import { useTitleAlert } from "@/hooks/use-title-alert";
 import { revealIn } from "@/lib/animation";
 import { prettyRoomId } from "@/lib/ids";
 
@@ -33,6 +38,13 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const session = usePeerSession(roomId);
   const [tab, setTab] = useState<TabKey>("notes");
   const scope = useRef<HTMLDivElement>(null);
+
+  // Each of these edge-detects on the session snapshot, so they must see every
+  // render. Sounds and toasts are deliberately separate: muting the audio must
+  // not also silence the visual notifications.
+  useSessionSounds(session);
+  const activity = useSessionNotifications(session);
+  useTitleAlert(activity);
 
   useGSAP(() => revealIn(scope.current, { stagger: 0.05, y: 10 }), { scope });
 
@@ -64,8 +76,14 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const unread = {
     notes: tab === "notes" ? 0 : Math.max(0, session.notes.length - seen.notes),
     files: tab === "files" ? 0 : Math.max(0, session.transfers.length - seen.files),
+    // Media has no history to be unread; the tab shows liveness instead.
     media: 0,
   } satisfies Record<TabKey, number>;
+
+  const transferRunning = session.transfers.some(
+    (transfer) => transfer.status === "active" || transfer.status === "pending",
+  );
+  const mediaLive = session.media.remoteAudioLive || session.media.remoteVideoLive;
 
   return (
     <div className="relative mx-auto flex h-dvh w-full max-w-6xl flex-col px-4 py-4 sm:px-6">
@@ -83,6 +101,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
         <div data-anim="in" className="ml-auto flex items-center gap-2">
           <ConnectionStatus phase={session.phase} />
+          <SoundToggle />
           <ThemeToggle />
           <Tooltip>
             <TooltipTrigger asChild>
@@ -133,9 +152,25 @@ export function RoomClient({ roomId }: { roomId: string }) {
               <Icon />
               <span className="hidden sm:inline">{label}</span>
               <span className="sm:hidden">{key === "media" ? "A/V" : label}</span>
+
+              {/* Two different signals: a count for things that queue up, and a
+                  pulsing dot for something happening right now. */}
               {unread[key] > 0 ? (
-                <span className="bg-primary text-primary-foreground absolute -top-1 -right-1 grid size-4 place-items-center rounded-full text-[0.6rem] font-semibold">
+                <span
+                  aria-label={`${unread[key]} new`}
+                  className="bg-primary text-primary-foreground absolute -top-1 -right-1 grid size-4 place-items-center rounded-full text-[0.6rem] font-semibold"
+                >
                   {unread[key] > 9 ? "9+" : unread[key]}
+                </span>
+              ) : null}
+
+              {(key === "media" && mediaLive) || (key === "files" && transferRunning) ? (
+                <span
+                  aria-label={key === "media" ? "Receiving media" : "Transfer in progress"}
+                  className="absolute -top-0.5 -right-0.5 flex size-2"
+                >
+                  <span className="bg-success absolute inline-flex size-full animate-ping rounded-full opacity-70" />
+                  <span className="bg-success relative inline-flex size-2 rounded-full" />
                 </span>
               ) : null}
             </TabsTrigger>
@@ -178,6 +213,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
       {session.phase === "waiting" ? <LobbyOverlay roomId={roomId} inviteUrl={inviteUrl} /> : null}
       {ended ? <EndedOverlay reason={session.endReason} error={session.error} /> : null}
+
+      <ToastViewport />
     </div>
   );
 }

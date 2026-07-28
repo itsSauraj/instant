@@ -2,9 +2,10 @@
 
 import { useRef } from "react";
 import { useGSAP } from "@gsap/react";
-import { Link2, Loader2, Lock } from "lucide-react";
+import { Link2, Loader2, Lock, QrCode } from "lucide-react";
 
 import { CopyField } from "@/components/copy-field";
+import { QrInvite } from "@/components/room/qr-invite";
 import { Badge } from "@/components/ui/badge";
 import { EASE, gsap, prefersReducedMotion, revealIn } from "@/lib/animation";
 import { prettyRoomId } from "@/lib/ids";
@@ -33,9 +34,11 @@ export function LobbyOverlay({ roomId, inviteUrl }: { roomId: string; inviteUrl:
   return (
     <div
       ref={scope}
-      className="bg-background/80 absolute inset-0 z-20 grid place-items-center p-5 backdrop-blur-md"
+      className="bg-background/80 absolute inset-0 z-20 grid place-items-center overflow-y-auto p-5 backdrop-blur-md"
     >
-      <div className="panel w-full max-w-md p-6 text-center sm:p-7">
+      {/* my-auto rather than centring alone: the panel is tall enough with the
+          QR that it must be able to scroll on a short viewport. */}
+      <div className="panel my-auto w-full max-w-md p-6 text-center sm:p-7">
         <div className="relative mx-auto grid size-14 place-items-center">
           <span
             ref={ringRef}
@@ -65,6 +68,14 @@ export function LobbyOverlay({ roomId, inviteUrl }: { roomId: string; inviteUrl:
           <div>
             <p className="text-muted-foreground mb-1.5 text-xs font-medium">Or share the code</p>
             <CopyField value={prettyRoomId(roomId)} label="Copy session code" />
+          </div>
+          <div>
+            <p className="text-muted-foreground mb-2 flex items-center gap-1.5 text-xs font-medium">
+              <QrCode className="size-3.5" />
+              Or scan it with a phone
+            </p>
+            {/* The invite link is already printed above, so don't repeat it. */}
+            <QrInvite url={inviteUrl} showUrl={false} />
           </div>
         </div>
 
