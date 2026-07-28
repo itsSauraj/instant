@@ -32,9 +32,11 @@ export function QrInvite({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [state, setState] = useState<QrState>("pending");
 
-  // No entrance animation of its own: this is always mounted inside a container
-  // that runs `revealIn` over its `[data-anim="in"]` descendants, and animating
-  // here too made the code fade in twice. `pulse` on the canvas is enough.
+  // Deliberately no `data-anim="in"` markers and no `revealIn` of its own. The
+  // lobby already animates the block this sits in, so marking these too made
+  // the code fade in twice; and since the global CSS hides `[data-anim="in"]`
+  // until GSAP reveals it, marking them without animating here would leave the
+  // code invisible wherever it is mounted standalone. `pulse` is enough.
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -81,7 +83,6 @@ export function QrInvite({
         on the wrapper and aria-hidden on the canvas itself.
       */}
       <div
-        data-anim="in"
         role="img"
         aria-label={`QR code for the invite link ${url}`}
         className="grid place-items-center rounded-lg border bg-white p-2 shadow-xs"
@@ -109,10 +110,7 @@ export function QrInvite({
 
       {/* Visible fallback so the invite works without a camera. */}
       {showUrl ? (
-        <p
-          data-anim="in"
-          className="text-muted-foreground max-w-full text-center font-mono text-xs break-all select-all"
-        >
+        <p className="text-muted-foreground max-w-full text-center font-mono text-xs break-all select-all">
           {url}
         </p>
       ) : null}

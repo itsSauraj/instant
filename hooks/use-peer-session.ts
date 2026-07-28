@@ -116,10 +116,15 @@ export function usePeerSession(roomId: string) {
     [session],
   );
 
+  // An ended session has no streams. The MediaStream objects themselves live
+  // for the whole session (tracks are added and removed on them), so without
+  // this a <video> stays bound to an emptied stream after teardown.
+  const live = snapshot.phase !== "ended";
+
   return {
     ...snapshot,
-    localStream: session?.getLocalStream() ?? null,
-    remoteStream: session?.getRemoteStream() ?? null,
+    localStream: live ? (session?.getLocalStream() ?? null) : null,
+    remoteStream: live ? (session?.getRemoteStream() ?? null) : null,
     sendNote,
     notifyTyping,
     sendFiles,

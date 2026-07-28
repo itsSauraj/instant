@@ -232,9 +232,19 @@ function Surface({
     if (element.srcObject !== stream) {
       element.srcObject = stream;
     }
+    if (!stream) {
+      // Releasing the binding matters: a <video> left holding a stream keeps
+      // the decoder attached after the session is gone.
+      element.pause();
+      return;
+    }
     // Autoplay can be refused before any user gesture; the controls below are a
     // gesture, so a later toggle recovers it.
     void element.play().catch(() => {});
+
+    return () => {
+      element.srcObject = null;
+    };
   }, [stream, version]);
 
   return (

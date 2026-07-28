@@ -59,6 +59,13 @@ const STUN_SERVERS = ["stun:stun.l.google.com:19302", "stun:global.stun.twilio.c
 /** How long a `disconnected` ICE state may persist before we give up. */
 const ICE_GRACE_MS = 9000;
 
+/**
+ * How long to wait, after a data channel closes, for the signalling server to
+ * say why the session ended. Short enough to feel immediate, long enough to
+ * beat a loopback round trip comfortably.
+ */
+const CLOSE_REASON_GRACE_MS = 1500;
+
 function iceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [{ urls: STUN_SERVERS }];
 
@@ -100,6 +107,8 @@ export class PeerSession {
   private ignoreOffer = false;
   private iceRestarted = false;
   private iceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Pending fallback teardown while we wait for the authoritative end reason. */
+  private closeGrace: ReturnType<typeof setTimeout> | null = null;
 
   private readonly localStream = new MediaStream();
   private readonly remoteStream = new MediaStream();
@@ -232,6 +241,10 @@ export class PeerSession {
     if (this.iceTimer) {
       clearTimeout(this.iceTimer);
       this.iceTimer = null;
+    }
+    if (this.closeGrace) {
+      clearTimeout(this.closeGrace);
+      this.closeGrace = null;
     }
     if (this.typingTimer) {
       clearTimeout(this.typingTimer);
@@ -563,10 +576,19 @@ export class PeerSession {
     });
 
     channel.addEventListener("close", () => {
-      if (this.phase === "ended") return;
-      // The channel only closes when the transport dies or the peer left; both
-      // are terminal for a two-party session.
-      this.end("peer-left");
+      if (this.phase === "ended" || this.closeGrace) return;
+
+      // The channel closing is terminal either way, but it does not say *why*.
+      // When the peer pressed End, its RTCPeerConnection closes immediately
+      // while its `bye` is still in flight to the signalling server, so this
+      // handler would otherwise beat the authoritative `peer-left` reason here
+      // and we would tell the user their peer "disconnected" when in fact they
+      // deliberately ended the session. Wait briefly for the real reason; if it
+      // arrives, `end()` runs first and this timer becomes a no-op.
+      this.closeGrace = setTimeout(() => {
+        this.closeGrace = null;
+        this.end("peer-left");
+      }, CLOSE_REASON_GRACE_MS);
     });
 
     channel.addEventListener("error", () => {
