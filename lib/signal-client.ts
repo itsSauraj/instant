@@ -115,9 +115,16 @@ export class SignalClient {
   }
 
   /** Tells the peer the hang-up was deliberate. Best effort by design — if it
-   *  fails, the stream teardown delivers `peer-left` a moment later anyway. */
+   *  fails (or the server refuses it), the stream teardown delivers
+   *  `peer-left` a moment later anyway. */
   async sayGoodbye() {
     await this.post({ t: "bye" });
+  }
+
+  /** Host only: grant or revoke the guest's right to end the session. The
+   *  server enforces the rule; a refused request changes nothing. */
+  async setPermission(allow: boolean) {
+    await this.post({ t: "permission", allow });
   }
 
   private async post(message: ClientMessage) {

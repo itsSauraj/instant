@@ -43,7 +43,16 @@ export type SessionSnapshot = {
   media: MediaState;
   /** True once the file channel can accept data. */
   channelsReady: boolean;
+  /** True for the session creator (the room's first occupant). */
+  isHost: boolean;
+  /** Whether the host has delegated the right to end the session to the guest. */
+  guestMayEnd: boolean;
+  /** True for the host always; for the guest, mirrors `guestMayEnd`. */
+  canEndSession: boolean;
 };
+
+/** Timestamps beyond what `Date` can represent would crash `toISOString()`. */
+const MAX_NOTE_TIMESTAMP_MS = 8.64e15;
 
 const STUN_SERVERS = ["stun:stun.l.google.com:19302", "stun:global.stun.twilio.com:3478"];
 
@@ -84,6 +93,8 @@ export class PeerSession {
   private filesChannel: RTCDataChannel | null = null;
 
   private role: PeerRole | null = null;
+  private isHost = false;
+  private guestMayEnd = false;
   private polite = false;
   private makingOffer = false;
   private ignoreOffer = false;
@@ -148,6 +159,9 @@ export class PeerSession {
         version: this.mediaVersion,
       },
       channelsReady: this.filesChannel?.readyState === "open",
+      isHost: this.isHost,
+      guestMayEnd: this.guestMayEnd,
+      canEndSession: this.isHost || this.guestMayEnd,
     };
   }
 
@@ -308,6 +322,8 @@ export class PeerSession {
     switch (event.t) {
       case "welcome": {
         this.role = event.role;
+        this.isHost = event.isHost;
+        this.guestMayEnd = event.guestMayEnd;
         // Perfect negotiation: exactly one side must be impolite.
         this.polite = event.role === "responder";
         this.createPeerConnection();
@@ -332,11 +348,29 @@ export class PeerSession {
         break;
       }
 
+      case "permission": {
+        this.guestMayEnd = event.guestMayEnd;
+        this.emit();
+        break;
+      }
+
       case "peer-left": {
         this.end(event.reason);
         break;
       }
     }
+  }
+
+  /**
+   * Host only: grants or revokes the guest's right to end the session. The
+   * server is the authority — a non-host call is refused there too, so the
+   * local guard just avoids a pointless request.
+   */
+  setGuestMayEnd(allow: boolean) {
+    if (!this.isHost || this.phase === "ended") return;
+    this.guestMayEnd = allow;
+    void this.signal?.setPermission(allow);
+    this.emit();
   }
 
   private send(payload: SignalPayload) {
@@ -484,6 +518,22 @@ export class PeerSession {
   }
 
   private attachChannel(channel: RTCDataChannel) {
+    // A non-conforming peer can announce a second channel with a label we have
+    // already bound. Replacing the live one would strand its listeners — and
+    // for files, orphan a FileTransferManager whose object URLs never get
+    // revoked. Keep the first, refuse the duplicate.
+    if (
+      (channel.label === CHANNEL.notes && this.notesChannel) ||
+      (channel.label === CHANNEL.files && this.filesChannel)
+    ) {
+      try {
+        channel.close();
+      } catch {
+        // Never opened; nothing to release.
+      }
+      return;
+    }
+
     if (channel.label === CHANNEL.notes) {
       this.notesChannel = channel;
       channel.addEventListener("message", (event) => this.onNoteMessage(event));
@@ -553,12 +603,25 @@ export class PeerSession {
 
     if (frame.k !== "note" || typeof frame.text !== "string") return;
 
+    // Never trust a peer-supplied timestamp: |at| beyond what Date can
+    // represent makes `new Date(at).toISOString()` throw in the notes panel,
+    // so a single hostile frame would crash the whole room UI.
+    const at =
+      typeof frame.at === "number" &&
+      Number.isFinite(frame.at) &&
+      Math.abs(frame.at) <= MAX_NOTE_TIMESTAMP_MS
+        ? frame.at
+        : Date.now();
+
     this.notes = [
       ...this.notes,
       {
-        id: typeof frame.id === "string" ? frame.id : crypto.randomUUID(),
+        id:
+          typeof frame.id === "string" && frame.id.length > 0 && frame.id.length <= 128
+            ? frame.id
+            : crypto.randomUUID(),
         text: frame.text.slice(0, MAX_NOTE_LENGTH),
-        at: typeof frame.at === "number" ? frame.at : Date.now(),
+        at,
         mine: false,
       },
     ];

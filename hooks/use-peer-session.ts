@@ -22,6 +22,9 @@ const INITIAL: SessionSnapshot = {
     version: 0,
   },
   channelsReady: false,
+  isHost: false,
+  guestMayEnd: false,
+  canEndSession: false,
 };
 
 const NO_SUBSCRIBE = () => () => {};
@@ -100,6 +103,12 @@ export function usePeerSession(roomId: string) {
   const cancelTransfer = useCallback((key: string) => session?.cancelTransfer(key), [session]);
   const endSession = useCallback(() => session?.end("self-ended", true), [session]);
 
+  /** Host only: grant or revoke the guest's right to end the session. */
+  const setGuestMayEnd = useCallback(
+    (allow: boolean) => session?.setGuestMayEnd(allow),
+    [session],
+  );
+
   const toggleMic = useCallback(() => session?.toggleMic() ?? Promise.resolve(), [session]);
   const toggleCamera = useCallback(() => session?.toggleCamera() ?? Promise.resolve(), [session]);
   const toggleScreenShare = useCallback(
@@ -116,6 +125,7 @@ export function usePeerSession(roomId: string) {
     sendFiles,
     cancelTransfer,
     endSession,
+    setGuestMayEnd,
     toggleMic,
     toggleCamera,
     toggleScreenShare,

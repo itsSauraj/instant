@@ -38,12 +38,24 @@ type Room = {
   sealed: boolean;
   relayCount: number;
   createdAt: number;
+  /** The first occupant. Only the host may end the session or delegate that right. */
+  hostPeerId: string | null;
+  /** Host-granted permission for the guest to end the session. Off by default. */
+  guestMayEnd: boolean;
   lobbyTimer?: ReturnType<typeof setTimeout>;
   hardTimer?: ReturnType<typeof setTimeout>;
 };
 
 export type JoinResult =
-  | { ok: true; peerId: string; secret: string; role: PeerRole; peerPresent: boolean }
+  | {
+      ok: true;
+      peerId: string;
+      secret: string;
+      role: PeerRole;
+      peerPresent: boolean;
+      isHost: boolean;
+      guestMayEnd: boolean;
+    }
   | { ok: false; error: "room-full" | "spent" };
 
 // Survive Next.js dev-server module reloads; otherwise a peer's slot would be
@@ -141,6 +153,8 @@ export function joinRoom(
       sealed: false,
       relayCount: 0,
       createdAt: now,
+      hostPeerId: null,
+      guestMayEnd: false,
     };
     registry.set(roomId, room);
     room.hardTimer = setTimeout(() => {
@@ -166,6 +180,9 @@ export function joinRoom(
     disconnect: handlers.disconnect,
   };
   room.occupants.set(occupant.peerId, occupant);
+  // The first occupant is the host. A room whose sole occupant leaves is always
+  // destroyed (never refilled), so this can never point at a departed peer.
+  if (room.hostPeerId === null) room.hostPeerId = occupant.peerId;
 
   if (room.occupants.size === 2) {
     room.sealed = true;
@@ -182,6 +199,8 @@ export function joinRoom(
     secret: occupant.secret,
     role: occupant.role,
     peerPresent,
+    isHost: room.hostPeerId === occupant.peerId,
+    guestMayEnd: room.guestMayEnd,
   };
 }
 
@@ -241,4 +260,55 @@ export function leaveRoom(roomId: string, peerId: string, reason: EndReason) {
 
 export function verifyPeer(roomId: string, peerId: string, secret: string) {
   return authenticate(roomId, peerId, secret).ok;
+}
+
+export type EndSessionResult =
+  | { ok: true }
+  | { ok: false; error: "unknown-room" | "unauthorized" | "forbidden" };
+
+/**
+ * Deliberate hang-up (`bye`). Authenticated *and* authorised: the host may
+ * always end the session; the guest only once the host has granted it. A
+ * refused request leaves the room completely untouched.
+ */
+export function endSession(roomId: string, peerId: string, secret: string): EndSessionResult {
+  const auth = authenticate(roomId, peerId, secret);
+  if (!auth.ok) return auth;
+
+  if (auth.room.hostPeerId !== peerId && !auth.room.guestMayEnd) {
+    return { ok: false, error: "forbidden" };
+  }
+
+  destroyRoom(roomId, "peer-ended", peerId);
+  return { ok: true };
+}
+
+export type PermissionResult =
+  | { ok: true }
+  | { ok: false; error: "unknown-room" | "unauthorized" | "forbidden" };
+
+/**
+ * Host-only: grants or revokes the guest's right to end the session, and tells
+ * the guest (if present) so its UI updates live. Anyone else changes nothing.
+ */
+export function setGuestMayEnd(
+  roomId: string,
+  peerId: string,
+  secret: string,
+  allow: boolean,
+): PermissionResult {
+  const auth = authenticate(roomId, peerId, secret);
+  if (!auth.ok) return auth;
+
+  if (auth.room.hostPeerId !== peerId) return { ok: false, error: "forbidden" };
+
+  auth.room.guestMayEnd = allow;
+  if (auth.other) {
+    try {
+      auth.other.emit({ t: "permission", guestMayEnd: allow });
+    } catch {
+      // Guest stream already torn down; the flag itself is what matters.
+    }
+  }
+  return { ok: true };
 }

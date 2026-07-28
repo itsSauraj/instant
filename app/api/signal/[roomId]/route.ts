@@ -6,7 +6,7 @@ import {
   type ClientMessage,
   type ServerEvent,
 } from "@/lib/signal-protocol";
-import { destroyRoom, joinRoom, leaveRoom, relay } from "@/lib/server/rooms";
+import { endSession, joinRoom, leaveRoom, relay, setGuestMayEnd } from "@/lib/server/rooms";
 
 /**
  * The entire backend: a relay that carries WebRTC offers, answers and ICE
@@ -87,6 +87,8 @@ export async function GET(request: Request, context: RouteContext) {
         secret: result.secret,
         role: result.role,
         peerPresent: result.peerPresent,
+        isHost: result.isHost,
+        guestMayEnd: result.guestMayEnd,
       });
 
       // Proxies and load balancers drop idle streams; a comment frame is enough.
@@ -138,8 +140,26 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   if (message.t === "bye") {
-    // Deliberate hang-up: tell the other side it was intentional, then reset.
-    destroyRoom(roomId, "peer-ended", peerId);
+    // Deliberate hang-up. Authenticated (anyone who merely saw the invite link
+    // must not be able to kill a live session) and authorised (only the host,
+    // or a guest the host has empowered, may end it on purpose).
+    const result = endSession(roomId, peerId, secret);
+    if (!result.ok) {
+      const status =
+        result.error === "unknown-room" ? 410 : result.error === "forbidden" ? 403 : 401;
+      return json({ error: result.error }, status);
+    }
+    return json({ ok: true }, 200);
+  }
+
+  if (message.t === "permission") {
+    if (typeof message.allow !== "boolean") return json({ error: "invalid-message" }, 400);
+    const result = setGuestMayEnd(roomId, peerId, secret, message.allow);
+    if (!result.ok) {
+      const status =
+        result.error === "unknown-room" ? 410 : result.error === "forbidden" ? 403 : 401;
+      return json({ error: result.error }, status);
+    }
     return json({ ok: true }, 200);
   }
 

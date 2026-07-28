@@ -15,10 +15,22 @@ export type EndReason =
 
 /** Server -> client. */
 export type ServerEvent =
-  | { t: "welcome"; peerId: string; secret: string; role: PeerRole; peerPresent: boolean }
+  | {
+      t: "welcome";
+      peerId: string;
+      secret: string;
+      role: PeerRole;
+      peerPresent: boolean;
+      /** True for the room's first occupant — the only peer that may always end it. */
+      isHost: boolean;
+      /** Whether the host has delegated the right to end the session. */
+      guestMayEnd: boolean;
+    }
   | { t: "peer-joined" }
   | { t: "peer-left"; reason: EndReason }
   | { t: "signal"; data: SignalPayload }
+  /** The host toggled whether the guest may end the session. Sent to the guest. */
+  | { t: "permission"; guestMayEnd: boolean }
   | { t: "ping" };
 
 /** Client -> client, relayed verbatim by the server. */
@@ -27,7 +39,11 @@ export type SignalPayload =
   | { kind: "candidate"; candidate: RTCIceCandidateInit | null };
 
 /** Client -> server request bodies. */
-export type ClientMessage = { t: "signal"; data: SignalPayload } | { t: "bye" };
+export type ClientMessage =
+  | { t: "signal"; data: SignalPayload }
+  | { t: "bye" }
+  /** Host only: grant or revoke the guest's right to end the session. */
+  | { t: "permission"; allow: boolean };
 
 export const SIGNAL_LIMITS = {
   /** SDP for audio+video+2 data channels stays well under this. */

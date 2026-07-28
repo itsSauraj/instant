@@ -8,6 +8,7 @@ import { Brand } from "@/components/brand";
 import { ConnectionStatus } from "@/components/room/connection-status";
 import { EndedOverlay } from "@/components/room/ended-overlay";
 import { FilesPanel } from "@/components/room/files-panel";
+import { HostPanel } from "@/components/room/host-panel";
 import { LobbyOverlay } from "@/components/room/lobby-overlay";
 import { MediaPanel } from "@/components/room/media-panel";
 import { NotesPanel } from "@/components/room/notes-panel";
@@ -42,6 +43,9 @@ export function RoomClient({ roomId }: { roomId: string }) {
 
   const connected = session.phase === "connected" && session.channelsReady;
   const ended = session.phase === "ended";
+  // A guest may only end the session deliberately once the host allows it.
+  // Involuntary teardown (tab close, transport loss) is not gated by this.
+  const endLocked = !ended && !session.canEndSession;
 
   // Unread markers, so a note arriving while you're on the Files tab is visible.
   const [seen, setSeen] = useState({ notes: 0, files: 0 });
@@ -80,16 +84,27 @@ export function RoomClient({ roomId }: { roomId: string }) {
         <div data-anim="in" className="ml-auto flex items-center gap-2">
           <ConnectionStatus phase={session.phase} />
           <ThemeToggle />
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={session.endSession}
-            disabled={ended}
-            className="gap-1.5"
-          >
-            <LogOut className="size-3.5" />
-            <span className="hidden sm:inline">End session</span>
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              {/* A disabled button fires no pointer events, so the span is the
+                  tooltip trigger while the guest is not allowed to end. */}
+              <span className="inline-flex" tabIndex={endLocked ? 0 : undefined}>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={session.endSession}
+                  disabled={ended || endLocked}
+                  className="gap-1.5"
+                >
+                  <LogOut className="size-3.5" />
+                  <span className="hidden sm:inline">End session</span>
+                </Button>
+              </span>
+            </TooltipTrigger>
+            {endLocked ? (
+              <TooltipContent>Only the host can end this session</TooltipContent>
+            ) : null}
+          </Tooltip>
         </div>
       </header>
 
@@ -101,6 +116,10 @@ export function RoomClient({ roomId }: { roomId: string }) {
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>{session.error}</span>
         </div>
+      ) : null}
+
+      {session.isHost && session.phase === "connected" ? (
+        <HostPanel guestMayEnd={session.guestMayEnd} onToggle={session.setGuestMayEnd} />
       ) : null}
 
       <Tabs
