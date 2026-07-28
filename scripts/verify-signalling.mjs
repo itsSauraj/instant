@@ -1,6 +1,6 @@
 /**
  * Exercises the signalling route's security invariants against a running dev
- * server. Not a unit-test suite — it drives the real HTTP surface.
+ * server. Not a unit-test suite -- it drives the real HTTP surface.
  *
  *   node scripts/verify-signalling.mjs [baseUrl]
  */
@@ -70,7 +70,7 @@ function check(name, condition, detail) {
     console.log(`  PASS  ${name}`);
   } else {
     failures += 1;
-    console.log(`  FAIL  ${name}${detail ? ` — ${detail}` : ""}`);
+    console.log(`  FAIL  ${name}${detail ? ` -- ${detail}` : ""}`);
   }
 }
 
@@ -177,22 +177,47 @@ async function testForgedCredentials() {
 async function testDeliberateHangUpResetsBoth() {
   console.log("\nDeliberate hang-up resets both sides");
   const room = roomId();
-  const a = await open(room);
-  const b = await open(room);
+  const a = await open(room); // first in: the host / initiator
+  const b = await open(room); // second in: the guest / responder
   await settle();
 
-  await post(room, b.creds, { t: "bye" });
+  // Which rule is live? Originally either peer could post "bye"; with host
+  // authority the guest's "bye" is refused (403) until the host grants it.
+  const guestBye = await post(room, b.creds, { t: "bye" });
   await settle();
+
+  let survivor;
+  if (guestBye.status === 403) {
+    console.log("  INFO  host-authority rule detected: ungranted guest bye is refused");
+    check("an ungranted guest bye is refused with 403", true);
+    check("a refused bye leaves the room intact", !a.closed && !b.closed);
+
+    // The host may always end the session deliberately.
+    const hostBye = await post(room, a.creds, { t: "bye" });
+    await settle();
+    check("the host's bye is accepted", hostBye.status === 200, String(hostBye.status));
+    survivor = b;
+  } else {
+    check(
+      "a peer's bye is accepted under the either-side-may-end rule",
+      guestBye.status === 200,
+      String(guestBye.status),
+    );
+    survivor = a;
+  }
 
   check(
     "survivor is told the peer ended it",
-    a.events.some((e) => e.t === "peer-left" && e.reason === "peer-ended"),
-    JSON.stringify(a.events.filter((e) => e.t === "peer-left")),
+    survivor.events.some((e) => e.t === "peer-left" && e.reason === "peer-ended"),
+    JSON.stringify(survivor.events.filter((e) => e.t === "peer-left")),
   );
-  check("survivor's stream is closed", a.closed);
+  check("survivor's stream is closed", survivor.closed);
 
   // The room must be gone, not merely half-empty.
-  const late = await post(room, a.creds, { t: "signal", data: { kind: "candidate", candidate: null } });
+  const late = await post(room, survivor.creds, {
+    t: "signal",
+    data: { kind: "candidate", candidate: null },
+  });
   check("the room no longer exists", late.status === 410, String(late.status));
 
   const rejoin = await open(room);
@@ -204,6 +229,7 @@ async function testDeliberateHangUpResetsBoth() {
   );
   check("the retired code grants no welcome", !rejoin.events.some((e) => e.t === "welcome"));
   rejoin.close();
+  a.close();
   b.close();
   await settle();
 }
