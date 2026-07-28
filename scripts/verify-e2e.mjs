@@ -111,29 +111,29 @@ async function run() {
   await tab(a.page, /notes/i).click();
   await tab(b.page, /notes/i).click();
 
-  await a.page.getByLabel("Note").fill("hello from A");
+  await a.page.getByLabel("Note", { exact: true }).fill("hello from A");
   await a.page.getByRole("button", { name: /send note/i }).click();
   await b.page.getByText("hello from A").waitFor({ timeout: 10_000 });
   check("A's note arrives at B", true);
 
-  await b.page.getByLabel("Note").fill("reply from B");
-  await b.page.getByLabel("Note").press("Enter");
+  await b.page.getByLabel("Note", { exact: true }).fill("reply from B");
+  await b.page.getByLabel("Note", { exact: true }).press("Enter");
   await a.page.getByText("reply from B").waitFor({ timeout: 10_000 });
   check("Enter sends, and B's reply arrives at A", true);
-  check("composer clears after sending", (await b.page.getByLabel("Note").inputValue()) === "");
+  check("composer clears after sending", (await b.page.getByLabel("Note", { exact: true }).inputValue()) === "");
 
-  await b.page.getByLabel("Note").fill("line one");
-  await b.page.getByLabel("Note").press("Shift+Enter");
+  await b.page.getByLabel("Note", { exact: true }).fill("line one");
+  await b.page.getByLabel("Note", { exact: true }).press("Shift+Enter");
   check(
     "Shift+Enter inserts a newline instead of sending",
-    (await b.page.getByLabel("Note").inputValue()).includes("\n"),
+    (await b.page.getByLabel("Note", { exact: true }).inputValue()).includes("\n"),
   );
-  await b.page.getByLabel("Note").fill("");
+  await b.page.getByLabel("Note", { exact: true }).fill("");
 
-  await a.page.getByLabel("Note").fill("about to send");
+  await a.page.getByLabel("Note", { exact: true }).fill("about to send");
   await b.page.getByText(/typing/i).first().waitFor({ timeout: 8_000 });
   check("typing indicator reaches the peer", true);
-  await a.page.getByLabel("Note").fill("");
+  await a.page.getByLabel("Note", { exact: true }).fill("");
 
   // ------------------------------------------------------------------ files
   console.log("\nFile transfer over the data channel");
@@ -150,7 +150,7 @@ async function run() {
 
   await b.page.getByText("payload.bin").waitFor({ timeout: 20_000 });
   await b.page.getByText("Received").waitFor({ timeout: 40_000 });
-  await a.page.getByText("Sent").waitFor({ timeout: 40_000 });
+  await a.page.getByText("Sent", { exact: true }).waitFor({ timeout: 40_000 });
   check("receiver reports the file as received", true);
   check("sender reports the file as sent", true);
 

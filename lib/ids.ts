@@ -19,10 +19,9 @@ function randomChars(length: number) {
   return out;
 }
 
-/** e.g. `k3f9-mq2t-8xbv-7rn0` */
+/** Canonical form, e.g. `k3f9mq2t8xbv7rn0` — grouping is display-only via `prettyRoomId`. */
 export function createRoomId() {
-  const raw = randomChars(ROOM_ID_LENGTH);
-  return raw.match(new RegExp(`.{1,${GROUP}}`, "g"))!.join("-");
+  return randomChars(ROOM_ID_LENGTH);
 }
 
 /** Strips formatting so pasted links, spaces and casing all normalise to one id. */

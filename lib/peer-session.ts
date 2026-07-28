@@ -224,8 +224,17 @@ export class PeerSession {
       this.typingTimer = null;
     }
 
-    if (notifyPeer && this.signal) {
-      void this.signal.sayGoodbye();
+    if (this.signal) {
+      const signal = this.signal;
+      this.signal = null;
+      if (notifyPeer) {
+        // The goodbye must reach the server before the stream is torn down:
+        // aborting first races the bye POST, and the peer would be told we
+        // merely disconnected rather than deliberately ended the session.
+        void signal.sayGoodbye().finally(() => signal.close());
+      } else {
+        signal.close();
+      }
     }
 
     this.files?.failAll("Session ended");
@@ -265,9 +274,6 @@ export class PeerSession {
     if (process.env.NODE_ENV !== "production") {
       delete (window as unknown as Record<string, unknown>).__instantPeerConnection;
     }
-
-    this.signal?.close();
-    this.signal = null;
 
     // Wipe the transcript. A session that ended leaves nothing behind for a
     // later occupant of this browser tab to read.
@@ -591,6 +597,7 @@ export class PeerSession {
   async toggleMic() {
     if (this.micTrack) {
       this.releaseTrack(this.micTrack, this.audioSender);
+      this.audioSender = null;
       this.micTrack = null;
       this.bumpMedia();
       return;
@@ -606,6 +613,7 @@ export class PeerSession {
   async toggleCamera() {
     if (this.cameraTrack) {
       this.releaseTrack(this.cameraTrack, this.screenTrack ? null : this.videoSender);
+      if (!this.screenTrack) this.videoSender = null;
       this.cameraTrack = null;
       this.bumpMedia();
       return;
@@ -655,9 +663,15 @@ export class PeerSession {
     this.localStream.removeTrack(this.screenTrack);
     this.screenTrack = null;
 
-    // Hand the video slot back to the camera if it is still running.
+    // Hand the video slot back to the camera if it is still running; with no
+    // camera left, the sender is removed outright so the peer's track mutes.
     if (this.videoSender) {
-      void this.videoSender.replaceTrack(this.cameraTrack ?? null);
+      if (this.cameraTrack) {
+        void this.videoSender.replaceTrack(this.cameraTrack);
+      } else {
+        this.removeSender(this.videoSender);
+        this.videoSender = null;
+      }
     }
     this.bumpMedia();
   }
@@ -694,7 +708,19 @@ export class PeerSession {
     track.onended = null;
     track.stop();
     this.localStream.removeTrack(track);
-    if (sender) void sender.replaceTrack(null);
+    // removeTrack rather than replaceTrack(null): merely stopping the RTP flow
+    // never mutes the receiver's track in Chromium, so the peer would keep
+    // rendering a frozen last frame. Removing the sender renegotiates and the
+    // peer's track goes muted, which is what drives its "camera off" UI.
+    if (sender) this.removeSender(sender);
+  }
+
+  private removeSender(sender: RTCRtpSender) {
+    try {
+      this.pc?.removeTrack(sender);
+    } catch {
+      // The connection is already closing; nothing left to renegotiate.
+    }
   }
 
   private bumpMedia() {

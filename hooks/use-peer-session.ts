@@ -37,7 +37,10 @@ export function usePeerSession(roomId: string) {
   useEffect(() => {
     const instance = new PeerSession(roomId);
     setSession(instance);
-    instance.start();
+    // Deferred a tick so StrictMode's dev-only mount/unmount/mount cycle never
+    // opens a first signalling stream: it would land as a second peer, seal the
+    // room, and tear it down for the surviving instance when it aborts.
+    const startTimer = setTimeout(() => instance.start(), 0);
 
     // Notify the peer eagerly on tab close; the server would notice the dropped
     // stream anyway, but this makes the other side reset within a frame.
@@ -45,6 +48,7 @@ export function usePeerSession(roomId: string) {
     window.addEventListener("pagehide", onPageHide);
 
     return () => {
+      clearTimeout(startTimer);
       window.removeEventListener("pagehide", onPageHide);
       instance.end("self-ended", true);
       setSession(null);

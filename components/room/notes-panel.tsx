@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SendHorizontal, StickyNote } from "lucide-react";
 
+import { NoteMarkdown } from "@/components/room/note-markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_NOTE_LENGTH } from "@/lib/peer-protocol";
@@ -120,7 +121,7 @@ function NoteBubble({ note }: { note: Note }) {
             : "bg-secondary text-secondary-foreground rounded-bl-md",
         )}
       >
-        <p className="break-words whitespace-pre-wrap">{note.text}</p>
+        <NoteMarkdown text={note.text} />
         <time
           dateTime={new Date(note.at).toISOString()}
           className={cn(

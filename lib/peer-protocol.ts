@@ -15,7 +15,8 @@ export const BUFFER_LOW_WATER = 512 * 1024;
 /** Received files are held in memory, so this is a tab-stability limit. */
 export const MAX_RECEIVE_BYTES = 1024 * 1024 * 1024;
 
-export const MAX_NOTE_LENGTH = 4000;
+/** Generous enough for real code snippets now that notes render markdown. */
+export const MAX_NOTE_LENGTH = 20_000;
 
 export type NoteFrame =
   | { k: "note"; id: string; text: string; at: number }
