@@ -5,6 +5,7 @@ import { Check, Copy } from "lucide-react";
 import { all } from "lowlight";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
 import { cn } from "@/lib/utils";
@@ -18,7 +19,7 @@ export const NoteMarkdown = memo(function NoteMarkdown({ text }: { text: string 
   return (
     <div className="note-md wrap-break-word">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkBreaks]}
         rehypePlugins={[[rehypeHighlight, { languages: all, detect: true }]]}
         components={{
           pre: CodeBlock,
