@@ -75,6 +75,9 @@ export function FilesPanel({
           setDragging(false);
           if (!disabled) pick(event.dataTransfer.files);
         }}
+        // Deliberately not focusable and no role: drag-and-drop is a pointer
+        // shortcut, and the "Choose files" button is the accessible path.
+        aria-disabled={disabled || undefined}
         className={cn(
           "m-3 flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors sm:m-4",
           dragging ? "border-primary bg-primary/10" : "border-border bg-muted/30",
@@ -143,7 +146,12 @@ function TransferRow({
             <p className="truncate text-sm font-medium" title={transfer.name}>
               {transfer.name}
             </p>
-            <StatusBadge transfer={transfer} />
+            {/* Live region on the coarse status only — the byte counter below
+                ticks ~20×/s and must never be announced. */}
+            <span role="status" className="flex shrink-0 items-center">
+              <span className="sr-only">{transfer.name}: </span>
+              <StatusBadge transfer={transfer} />
+            </span>
           </div>
 
           <p className="text-muted-foreground mt-0.5 flex items-center gap-1.5 text-xs tabular-nums">
@@ -161,6 +169,7 @@ function TransferRow({
           {running ? (
             <Progress
               value={percent}
+              aria-label={`${incoming ? "Receiving" : "Sending"} ${transfer.name}`}
               className="mt-2"
               indicatorClassName={incoming ? "bg-success" : "bg-primary"}
             />

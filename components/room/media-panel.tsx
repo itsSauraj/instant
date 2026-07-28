@@ -42,12 +42,21 @@ export function MediaPanel({
   const run = (id: string, action: () => Promise<void>) => async () => {
     setDeviceError(null);
     setBusy(id);
+    // Chrome/Safari reject a dismissed permission prompt, so `finally` clears
+    // the busy state. Firefox can leave the promise pending forever when the
+    // prompt is dismissed without a decision, which would pin every control in
+    // the disabled state — the failsafe re-enables them.
+    const failsafe = window.setTimeout(
+      () => setBusy((current) => (current === id ? null : current)),
+      15_000,
+    );
     try {
       await action();
     } catch (error) {
       setDeviceError(describeDeviceError(error));
     } finally {
-      setBusy(null);
+      window.clearTimeout(failsafe);
+      setBusy((current) => (current === id ? null : current));
     }
   };
 
@@ -60,6 +69,7 @@ export function MediaPanel({
           stream={remoteStream}
           version={media.version}
           muted={muted}
+          label="Live video from the other person"
           className={cn("size-full object-contain", !media.remoteVideoLive && "invisible")}
         />
 
@@ -114,7 +124,7 @@ export function MediaPanel({
             active={media.micOn}
             disabled={disabled || busy !== null}
             onClick={run("mic", onToggleMic)}
-            on={{ icon: Mic, label: "Mute microphone" }}
+            on={{ icon: Mic, label: "Turn off microphone" }}
             off={{ icon: MicOff, label: "Turn on microphone" }}
           />
           <Control
@@ -203,12 +213,15 @@ function Surface({
   muted,
   mirrored,
   className,
+  label,
 }: {
   stream: MediaStream | null;
   version: number;
   muted: boolean;
   mirrored?: boolean;
   className?: string;
+  /** Accessible name. Omit for decorative surfaces (the local self-preview). */
+  label?: string;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
 
@@ -230,6 +243,10 @@ function Surface({
       autoPlay
       playsInline
       muted={muted}
+      aria-label={label}
+      // The unlabeled local preview is decorative — its visible caption ("You"
+      // / "Your screen") is the accessible text, so don't announce it twice.
+      aria-hidden={label ? undefined : true}
       className={cn(className, mirrored && "-scale-x-100")}
     />
   );
