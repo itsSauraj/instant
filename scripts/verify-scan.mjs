@@ -151,7 +151,12 @@ async function shotJoinField() {
   const browser = await chromium.launch({ headless: true });
   try {
     for (const theme of ["dark", "light"]) {
-      const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      // Reduced motion makes geometry deterministic: the app skips its GSAP
+      // entrance, so measurements cannot race an in-flight transform.
+      const context = await browser.newContext({
+        viewport: { width: 1280, height: 900 },
+        reducedMotion: "reduce",
+      });
       const page = await context.newPage();
       await page.addInitScript((t) => localStorage.setItem("instant-theme", t), theme);
       await page.goto(BASE);

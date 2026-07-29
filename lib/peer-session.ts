@@ -66,6 +66,13 @@ const ICE_GRACE_MS = 9000;
  */
 const CLOSE_REASON_GRACE_MS = 1500;
 
+/**
+ * Ceiling on candidates buffered while waiting for a remote description. A
+ * normal negotiation produces a handful; this only exists so a peer that never
+ * sends an SDP cannot grow the queue without bound.
+ */
+const MAX_PENDING_CANDIDATES = 128;
+
 function iceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [{ urls: STUN_SERVERS }];
 
@@ -109,6 +116,8 @@ export class PeerSession {
   private iceTimer: ReturnType<typeof setTimeout> | null = null;
   /** Pending fallback teardown while we wait for the authoritative end reason. */
   private closeGrace: ReturnType<typeof setTimeout> | null = null;
+  /** Candidates received before a remote description existed to attach them to. */
+  private pendingCandidates: Array<RTCIceCandidateInit | null> = [];
 
   private readonly localStream = new MediaStream();
   private readonly remoteStream = new MediaStream();
@@ -246,6 +255,7 @@ export class PeerSession {
       clearTimeout(this.closeGrace);
       this.closeGrace = null;
     }
+    this.pendingCandidates = [];
     if (this.typingTimer) {
       clearTimeout(this.typingTimer);
       this.typingTimer = null;
@@ -404,6 +414,11 @@ export class PeerSession {
         if (this.ignoreOffer) return;
 
         await pc.setRemoteDescription(description);
+        // A description is now in place, so anything that arrived early can be
+        // applied. Do this before answering: it gets candidates into the ICE
+        // agent at the earliest possible moment.
+        await this.flushPendingCandidates();
+
         if (description.type === "offer") {
           await pc.setLocalDescription();
           if (pc.localDescription) {
@@ -413,15 +428,53 @@ export class PeerSession {
         return;
       }
 
-      try {
-        await pc.addIceCandidate(payload.candidate ?? undefined);
-      } catch (error) {
-        // Expected when we deliberately dropped the offer these belong to.
-        if (!this.ignoreOffer) throw error;
+      // Signalling payloads are independent HTTP requests with no ordering
+      // guarantee, so a candidate can outrun the description it belongs to --
+      // common on mobile, where the SDP is larger and the uplink slower. Adding
+      // it now would throw "the remote description is null", so hold it.
+      if (!pc.remoteDescription) {
+        if (this.pendingCandidates.length < MAX_PENDING_CANDIDATES) {
+          this.pendingCandidates.push(payload.candidate);
+        }
+        return;
       }
+
+      await this.addCandidate(payload.candidate);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Negotiation failed";
       this.fail(`Connection negotiation failed: ${message}`);
+    }
+  }
+
+  /** Applies one candidate, tolerating the ones we deliberately dropped. */
+  private async addCandidate(candidate: RTCIceCandidateInit | null) {
+    const pc = this.pc;
+    if (!pc) return;
+    try {
+      await pc.addIceCandidate(candidate ?? undefined);
+    } catch (error) {
+      // Expected when we deliberately dropped the offer these belong to; a
+      // rolled-back description also invalidates candidates already queued.
+      if (!this.ignoreOffer) throw error;
+    }
+  }
+
+  /**
+   * Drains candidates that arrived before any remote description. A failure
+   * here must not abort the rest: one stale candidate from a superseded
+   * negotiation should not prevent the valid ones from being applied.
+   */
+  private async flushPendingCandidates() {
+    if (this.pendingCandidates.length === 0) return;
+
+    const queued = this.pendingCandidates;
+    this.pendingCandidates = [];
+    for (const candidate of queued) {
+      try {
+        await this.addCandidate(candidate);
+      } catch {
+        // Keep going; ICE only needs one workable pair.
+      }
     }
   }
 
