@@ -4,76 +4,83 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Palette follows the saurabh-yadav.me design system: deep-space surfaces
+ * (space-900 #02030A / space-800 #070A18 / space-700 #0E1228), lavender
+ * #C9B8FF as the one primary accent, muted #aaa6c3 body text, and pastel
+ * status colors (mint / soft amber / rose-leaning red). The dark theme is the
+ * flagship; light keeps the same lavender anchor so the toggle stays useful.
+ */
 :root {
   --radius: 0.75rem;
 
-  --background: oklch(0.986 0.003 265);
-  --foreground: oklch(0.21 0.02 275);
+  --background: oklch(0.985 0.004 292);
+  --foreground: oklch(0.22 0.025 283);
 
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.21 0.02 275);
+  --card-foreground: oklch(0.22 0.025 283);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.21 0.02 275);
+  --popover-foreground: oklch(0.22 0.025 283);
 
-  --primary: oklch(0.53 0.21 285);
-  --primary-foreground: oklch(0.985 0.005 285);
+  --primary: oklch(0.55 0.17 292);
+  --primary-foreground: oklch(0.985 0.005 292);
 
-  --secondary: oklch(0.965 0.008 275);
-  --secondary-foreground: oklch(0.28 0.03 280);
+  --secondary: oklch(0.963 0.009 290);
+  --secondary-foreground: oklch(0.29 0.035 288);
 
-  --muted: oklch(0.965 0.008 275);
-  --muted-foreground: oklch(0.53 0.02 275);
+  --muted: oklch(0.963 0.009 290);
+  --muted-foreground: oklch(0.53 0.025 287);
 
-  --accent: oklch(0.95 0.02 285);
-  --accent-foreground: oklch(0.3 0.06 285);
+  --accent: oklch(0.945 0.024 292);
+  --accent-foreground: oklch(0.33 0.07 292);
 
-  --destructive: oklch(0.58 0.22 20);
-  --destructive-foreground: oklch(0.985 0.01 20);
+  --destructive: oklch(0.6 0.2 18);
+  --destructive-foreground: oklch(0.985 0.01 18);
 
-  --success: oklch(0.62 0.16 155);
-  --success-foreground: oklch(0.985 0.01 155);
+  --success: oklch(0.62 0.14 163);
+  --success-foreground: oklch(0.985 0.01 163);
 
-  --warning: oklch(0.73 0.16 75);
-  --warning-foreground: oklch(0.24 0.05 75);
+  --warning: oklch(0.72 0.14 80);
+  --warning-foreground: oklch(0.24 0.05 80);
 
-  --border: oklch(0.916 0.01 275);
-  --input: oklch(0.916 0.01 275);
-  --ring: oklch(0.53 0.21 285);
+  --border: oklch(0.915 0.014 290);
+  --input: oklch(0.915 0.014 290);
+  --ring: oklch(0.55 0.17 292);
 }
 
 .dark {
-  --background: oklch(0.16 0.015 275);
-  --foreground: oklch(0.965 0.006 275);
+  --background: oklch(0.125 0.022 270);
+  --foreground: oklch(0.97 0.005 286);
 
-  --card: oklch(0.205 0.018 275);
-  --card-foreground: oklch(0.965 0.006 275);
-  --popover: oklch(0.225 0.02 275);
-  --popover-foreground: oklch(0.965 0.006 275);
+  --card: oklch(0.16 0.03 268);
+  --card-foreground: oklch(0.97 0.005 286);
+  --popover: oklch(0.2 0.042 272);
+  --popover-foreground: oklch(0.97 0.005 286);
 
-  --primary: oklch(0.68 0.18 288);
-  --primary-foreground: oklch(0.17 0.04 288);
+  --primary: oklch(0.81 0.1 293);
+  --primary-foreground: oklch(0.17 0.04 285);
 
-  --secondary: oklch(0.27 0.022 275);
-  --secondary-foreground: oklch(0.965 0.006 275);
+  --secondary: oklch(0.23 0.035 278);
+  --secondary-foreground: oklch(0.97 0.005 286);
 
-  --muted: oklch(0.27 0.022 275);
-  --muted-foreground: oklch(0.7 0.02 275);
+  --muted: oklch(0.23 0.035 278);
+  --muted-foreground: oklch(0.72 0.035 288);
 
-  --accent: oklch(0.31 0.045 285);
-  --accent-foreground: oklch(0.95 0.02 285);
+  --accent: oklch(0.27 0.05 288);
+  --accent-foreground: oklch(0.93 0.04 292);
 
-  --destructive: oklch(0.66 0.2 22);
-  --destructive-foreground: oklch(0.15 0.03 22);
+  --destructive: oklch(0.7 0.17 18);
+  --destructive-foreground: oklch(0.14 0.03 18);
 
-  --success: oklch(0.72 0.17 158);
-  --success-foreground: oklch(0.15 0.03 158);
+  --success: oklch(0.88 0.07 167);
+  --success-foreground: oklch(0.16 0.05 167);
 
-  --warning: oklch(0.8 0.15 78);
-  --warning-foreground: oklch(0.2 0.04 78);
+  --warning: oklch(0.86 0.12 85);
+  --warning-foreground: oklch(0.2 0.05 85);
 
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 14%);
-  --ring: oklch(0.68 0.18 288);
+  --ring: oklch(0.81 0.1 293);
 }
 
 @theme inline {
@@ -105,6 +112,9 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  /* Accent halo used on hover for primary actions (`shadow-glow`). */
+  --shadow-glow: 0 0 22px -4px color-mix(in oklab, var(--primary) 55%, transparent);
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
@@ -145,6 +155,8 @@
 @layer utilities {
   .panel {
     @apply rounded-xl border bg-card/70 backdrop-blur-xl;
+    /* Soft deep drop, tinted from the theme so it works in both modes. */
+    box-shadow: 0 16px 40px -20px color-mix(in oklab, var(--foreground) 50%, transparent);
   }
 
   .scroll-slim {
