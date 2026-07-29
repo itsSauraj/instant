@@ -34,10 +34,18 @@ type Status = "idle" | "starting" | "scanning" | "error";
 export function ScanInvite({
   className,
   iconOnly = false,
+  onBeforeNavigate,
 }: {
   className?: string;
   /** Renders as a bare icon, for sitting inside the join field. */
   iconOnly?: boolean;
+  /**
+   * Runs just before the scanner navigates to the room. A scan skips the join
+   * form's submit path, so the host page uses this to persist the typed
+   * display name (via lib/identity) — the name reaches the room through
+   * localStorage, never through the URL, which is shared and scanned.
+   */
+  onBeforeNavigate?: () => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -132,11 +140,12 @@ export function ScanInvite({
       doneRef.current = true;
       stop();
       setOpen(false);
+      onBeforeNavigate?.();
       // Route internally by id. The scanned text is never navigated to, so a
       // hostile QR cannot redirect anyone off-site.
       router.push(`/room/${roomId}`);
     }, SAMPLE_INTERVAL_MS);
-  }, [router, stop]);
+  }, [router, stop, onBeforeNavigate]);
 
   const onOpenChange = (next: boolean) => {
     setOpen(next);

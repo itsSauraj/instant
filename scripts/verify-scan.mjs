@@ -122,8 +122,15 @@ async function scan(y4mPath, { expectUrl, expectRefusal }) {
       `landed on ${new URL(page.url()).origin}`,
     );
 
-    await page.getByText(/waiting for one other person/i).waitFor({ timeout: 20_000 });
-    check("the scanned room reaches a lobby", true);
+    // Under the mesh model the scanner is the first joiner of that code, so
+    // they are seated as host: wait for any working room shell rather than
+    // the retired two-person "waiting for one other person" lobby.
+    const roomShell = page
+      .getByRole("button", { name: /leave|close|end session|invite/i })
+      .or(page.getByText(/invite|share/i))
+      .first();
+    await roomShell.waitFor({ timeout: 20_000 });
+    check("the scanned room reaches a working room shell", true);
 
     // Count live *camera* tracks specifically. The room legitimately binds its
     // own (empty) remote MediaStream to a video element, so merely counting

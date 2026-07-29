@@ -1,15 +1,17 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useGSAP } from "@gsap/react";
 import { ArrowRight, FileUp, Lock, StickyNote, Users, Video } from "lucide-react";
 
+import { NameField } from "@/components/home/name-field";
 import { ScanInvite } from "@/components/home/scan-invite";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { DURATION, EASE, gsap, prefersReducedMotion, revealIn } from "@/lib/animation";
+import { getStoredName, markRoomCreated, setStoredName } from "@/lib/identity";
 import { createRoomId, isValidRoomId, normalizeRoomId } from "@/lib/ids";
 
 const CAPABILITIES = [
@@ -34,8 +36,19 @@ export function HomeHero() {
   const router = useRouter();
   const scope = useRef<HTMLDivElement>(null);
   const orbRef = useRef<HTMLDivElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  // One soft nudge only: an empty name never blocks (the server substitutes a
+  // placeholder), but the first attempt pauses to ask for one.
+  const [nameNudged, setNameNudged] = useState(false);
+
+  // Prefill after mount, not in the initial render: localStorage is absent on
+  // the server, and reading it during hydration would mismatch the markup.
+  useEffect(() => {
+    setName(getStoredName());
+  }, []);
 
   useGSAP(
     () => {
@@ -57,8 +70,33 @@ export function HomeHero() {
     { scope },
   );
 
+  /**
+   * The name travels to `/room/<id>` via localStorage (`lib/identity.ts`), not
+   * a query parameter: room URLs are exactly what people copy, paste and scan
+   * to invite each other, so anything in them is broadcast — and a recipient
+   * opening `?name=Alice` would be misnamed after the sender. Storage keeps
+   * the name private to this browser and alive across the reload that now
+   * reclaims a session seat.
+   *
+   * Returns false when it nudged instead of proceeding.
+   */
+  const commitName = () => {
+    const stored = setStoredName(name);
+    if (!stored && !nameNudged) {
+      setNameNudged(true);
+      nameRef.current?.focus();
+      return false;
+    }
+    return true;
+  };
+
   const createSession = () => {
-    router.push(`/room/${createRoomId()}`);
+    if (!commitName()) return;
+    const id = createRoomId();
+    // Tells the room page this tab is the creator, so it seats them instead of
+    // asking for a name they just typed.
+    markRoomCreated(id);
+    router.push(`/room/${id}`);
   };
 
   const join = (event: React.FormEvent) => {
@@ -75,6 +113,7 @@ export function HomeHero() {
       return;
     }
     setJoinError(null);
+    if (!commitName()) return;
     router.push(`/room/${id}`);
   };
 
@@ -101,7 +140,7 @@ export function HomeHero() {
             className="border-primary/25 bg-primary/10 text-primary inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium"
           >
             <Users className="size-3.5" />
-            Two people. One connection. Nothing in between.
+            Up to seven people. Direct connections. Nothing in between.
           </span>
 
           <h1
@@ -113,13 +152,26 @@ export function HomeHero() {
           </h1>
 
           <p data-anim="in" className="text-muted-foreground max-w-xl text-pretty sm:text-lg">
-            A session links exactly two browsers. Your data travels directly between them, the
-            server only introduces the pair, then steps out.
+            A session links up to seven browsers directly to each other. Your data travels
+            peer to peer; the server only introduces people, then steps out.
           </p>
         </div>
       </div>
 
       <div data-anim="in" className="panel mx-auto w-full max-w-xl p-6 sm:p-7">
+        {/* One field serves both flows below it: whichever way you enter a
+            room, this is the name the others will see. */}
+        <NameField
+          ref={nameRef}
+          value={name}
+          onChange={(next) => {
+            setName(next);
+            if (next.trim()) setNameNudged(false);
+          }}
+          nudge={nameNudged}
+          className="mb-5"
+        />
+
         <Button size="lg" className="w-full gap-2" onClick={createSession}>
           Create a private session
           <ArrowRight className="size-4" />
@@ -153,6 +205,9 @@ export function HomeHero() {
               <ScanInvite
                 iconOnly
                 className="absolute top-1/2 right-1 -translate-y-1/2"
+                // A scan bypasses the join form's submit, so flush the typed
+                // name to storage before the scanner navigates to the room.
+                onBeforeNavigate={() => setStoredName(name)}
               />
             </div>
             <Button type="submit" variant="secondary">
@@ -187,8 +242,9 @@ export function HomeHero() {
       >
         <Lock className="mt-0.5 size-3.5 shrink-0" />
         <span className="text-left">
-          A session seals after the second person joins — a third can never get in. When either
-          side leaves, the session is destroyed for both and cannot be resumed.
+          Nobody enters without the host letting them in, and the host sets how many seats
+          exist. When the host closes the session, it is destroyed for everyone and cannot be
+          resumed.
         </span>
       </p>
     </div>

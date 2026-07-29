@@ -72,10 +72,10 @@ export function LobbyOverlay({
         </div>
 
         <h2 data-anim="in" className="mt-5 text-lg font-semibold">
-          Waiting for one other person
+          Waiting for others to join
         </h2>
         <p data-anim="in" className="text-muted-foreground mt-1.5 text-sm">
-          Send them this link. The session seals as soon as they arrive.
+          Share this link. You will be asked to let each person in as they arrive.
         </p>
 
         <div data-anim="in" className="mt-5 space-y-3 text-left">
@@ -102,7 +102,7 @@ export function LobbyOverlay({
 
         <Badge data-anim="in" variant="muted" className="mt-5 gap-1.5 py-1">
           <Lock />
-          Only the next person to open this link can join
+          Nobody joins until you approve them
         </Badge>
       </div>
     </div>

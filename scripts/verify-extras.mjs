@@ -291,7 +291,9 @@ async function run() {
       `peak=${s.peak.toFixed(4)} maxDiff=${s.maxDiff.toFixed(4)} first=${s.firstAbs} last=${s.lastAbs} dur=${s.duration.toFixed(2)}`,
     );
   }
-  check("engine exposes all 16 named cues", cueStats.length === 16, String(cueStats.length));
+  // Phase 1 may add cues (knock, admit, peer-away...); every exposed cue is
+  // quality-checked above, so only a shrink below the original 16 is a bug.
+  check("engine exposes at least the original 16 named cues", cueStats.length >= 16, String(cueStats.length));
 
   console.log("\n   live engine behavior (real AudioContext, autoplay allowed)");
 

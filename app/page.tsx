@@ -1,8 +1,7 @@
 import { Globe } from "lucide-react";
 
-import { Brand } from "@/components/brand";
 import { HomeHero } from "@/components/home/home-hero";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { SiteNav } from "@/components/site-nav";
 import { Button } from "@/components/ui/button";
 
 function GithubIcon() {
@@ -16,11 +15,8 @@ function GithubIcon() {
 
 export default function HomePage() {
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-5 py-5 sm:px-8">
-      <header className="flex items-center justify-between">
-        <Brand />
-        <ThemeToggle />
-      </header>
+    <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-5 pt-24 pb-5 sm:px-8">
+      <SiteNav />
       <HomeHero />
       <footer className="mt-10 border-t border-border/60 pt-5 pb-2">
         <div className="flex items-center justify-between gap-4">

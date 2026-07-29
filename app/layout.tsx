@@ -15,9 +15,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
+  // Matches --background in globals.css for each mode.
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#fbfbfe" },
-    { media: "(prefers-color-scheme: dark)", color: "#111018" },
+    { media: "(prefers-color-scheme: light)", color: "#fbfafd" },
+    { media: "(prefers-color-scheme: dark)", color: "#05060f" },
   ],
 };
 

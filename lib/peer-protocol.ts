@@ -55,10 +55,93 @@ export type NoteFrame =
    */
   | { k: "doc"; text: string; rev: number; at: number };
 
+/**
+ * How long the sender waits for the receiver's `accept` before giving up on
+ * that recipient. Generous: the receiver may be opening a filesystem sink or
+ * replaying persisted partial bytes before it can answer.
+ */
+export const ACCEPT_TIMEOUT_MS = 30_000;
+
+/** `uid` values are sender-minted UUIDs; anything longer is hostile garbage. */
+export const MAX_TRANSFER_UID_LENGTH = 64;
+
+/**
+ * Ceiling on bytes queued between the wire and the sink for one incoming
+ * transfer. Sinks are normally faster than the network, so this only trips
+ * when a destination stalls (or a hostile peer floods faster than any disk);
+ * failing the transfer is better than letting the queue eat the tab's memory.
+ */
+export const MAX_PENDING_SINK_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Resume requests a link will act on for its whole lifetime. A well-behaved
+ * peer sends at most a handful (one per partial it holds); a flood of them is
+ * an attempt to make us re-read files or spam re-offers.
+ */
+export const MAX_RESUME_REQUESTS_PER_LINK = 32;
+
+/**
+ * The file-transfer control frames (JSON on the `files` channel). Binary
+ * chunks travel on the same channel, framed by `frameChunk` below.
+ *
+ * Identity model: `id` is a per-link, per-direction session counter (cheap,
+ * rides every chunk as the 4-byte header) and CANNOT survive a reload. `uid`
+ * is a sender-minted token (`crypto.randomUUID()`) that names the (sender,
+ * file) pair durably: the receiver keys its persisted partial records by it.
+ * Same-file identity across a reload is `name + size + lastModified` — enough
+ * to refuse resuming against a different file without hashing gigabytes
+ * before the first byte moves.
+ *
+ *  - offer:  sender proposes a transfer. Carries the durable `uid` and the
+ *            full file identity. `fresh: true` orders the receiver to discard
+ *            any partial it holds for this uid/identity and start at byte 0
+ *            (sent when the sender knows resuming would corrupt: the file it
+ *            now holds does not match the partial's identity).
+ *  - accept: receiver's answer, after it has opened its sink (and, when
+ *            resuming, verified the sink really starts at the claimed byte).
+ *            `from` is the byte offset the sender must start at: 0 for a
+ *            fresh transfer, the durable partial size when resuming. Chunks
+ *            only flow after this frame — the receiver controls the offset.
+ *  - ack:    receiver -> sender, every TRANSFER_LIMITS.ackIntervalBytes, and
+ *            only for bytes DURABLY in the sink (written + persisted), since
+ *            resume rewinds to the last acked offset. Drives the sender's
+ *            `confirmedBytes`.
+ *  - done:   sender finished writing chunks (unchanged from Phase 1).
+ *  - cancel: either side aborts; `by` attributes it (unchanged from Phase 1).
+ *  - resume-req:  receiver -> sender after (re)connecting: "I durably hold
+ *            `received` bytes of transfer `uid`, which claimed this identity".
+ *            The sender validates it still holds a File matching that
+ *            identity and, if so, re-offers with the same uid; the normal
+ *            offer/accept handshake then lands on `from = received`.
+ *  - resume-nack: sender -> receiver: it cannot honour a resume-req (the File
+ *            object died with a reload, or the identity no longer matches).
+ *            The receiver surfaces this honestly instead of showing 0%.
+ */
 export type FileFrame =
-  | { k: "offer"; id: number; name: string; size: number; mime: string }
+  | {
+      k: "offer";
+      id: number;
+      uid: string;
+      name: string;
+      size: number;
+      mime: string;
+      lastModified: number;
+      fresh?: boolean;
+    }
+  | { k: "accept"; id: number; from: number }
+  | { k: "ack"; id: number; received: number }
   | { k: "done"; id: number }
-  | { k: "cancel"; id: number; by: "sender" | "receiver"; reason?: string };
+  | { k: "cancel"; id: number; by: "sender" | "receiver"; reason?: string }
+  | {
+      k: "resume-req";
+      uid: string;
+      name: string;
+      size: number;
+      mime: string;
+      lastModified: number;
+      received: number;
+    }
+  | { k: "resume-nack"; uid: string; reason?: string };
 
 /**
  * Binary chunks are prefixed with the little-endian uint32 transfer id so

@@ -35,6 +35,7 @@ export type SoundCue =
   | "cameraOff"
   | "screenShareOn"
   | "screenShareOff"
+  | "knock"
   | "error";
 
 export const SOUND_CUES: readonly SoundCue[] = [
@@ -53,6 +54,7 @@ export const SOUND_CUES: readonly SoundCue[] = [
   "cameraOff",
   "screenShareOn",
   "screenShareOff",
+  "knock",
   "error",
 ];
 
@@ -107,7 +109,6 @@ const CS5 = 550;
 const D5 = 586.67;
 const E5 = 660;
 const A5 = 880;
-void A3;
 
 const CUES: Record<SoundCue, NoteSpec[]> = {
   // A quick upward "swip": one short fifth-to-octave glide.
@@ -160,6 +161,11 @@ const CUES: Record<SoundCue, NoteSpec[]> = {
   ],
   screenShareOff: [
     { at: 0, f: A5, glideTo: A4, glideTime: 0.16, hold: 0.03, tau: 0.11, peak: 0.38 },
+  ],
+  // Two quick low taps, like knuckles on a door: someone is asking to join.
+  knock: [
+    { at: 0, f: A3, hold: 0.015, tau: 0.05, peak: 0.5, cutoff: 1200 },
+    { at: 0.16, f: A3, hold: 0.015, tau: 0.05, peak: 0.5, cutoff: 1200 },
   ],
   // Low, dull and falling — a soft "uh-oh", filtered darker than everything else.
   error: [

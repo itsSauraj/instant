@@ -1,21 +1,40 @@
 import { isValidRoomId, normalizeRoomId } from "@/lib/ids";
 import {
+  JOIN_PARAM,
   PEER_ID_HEADER,
   PEER_SECRET_HEADER,
   SIGNAL_LIMITS,
+  sanitizeName,
+  sanitizeUid,
   type ClientMessage,
   type ServerEvent,
+  type SignalPayload,
 } from "@/lib/signal-protocol";
-import { endSession, joinRoom, leaveRoom, relay, setGuestMayEnd } from "@/lib/server/rooms";
+import {
+  answerKnock,
+  closeRoom,
+  leaveRoom,
+  moderate,
+  openStream,
+  relaySignal,
+  removePeer,
+  setCapacity,
+  setPin,
+  streamAborted,
+  type ActionError,
+  type ActionResult,
+  type Connection,
+} from "@/lib/server/rooms";
 
 /**
- * The entire backend: a relay that carries WebRTC offers, answers and ICE
- * candidates between exactly two browsers, then gets out of the way.
+ * The entire backend: a relay that introduces up to seven browsers to each
+ * other and carries their WebRTC negotiation, then gets out of the way.
  *
- *   GET  -> join the room and open an SSE stream (the join *is* the GET)
- *   POST -> forward one signalling payload to the other peer
+ *   GET  -> open an SSE stream; found the room, resume a seat, or knock
+ *   POST -> one ClientMessage: targeted signal relay or a room action
  *
- * No database, no auth provider, no state that outlives the two streams.
+ * No database, no auth provider. All authority lives in lib/server/rooms.ts;
+ * this file only translates HTTP into calls and results into status codes.
  */
 
 export const runtime = "nodejs";
@@ -38,12 +57,40 @@ async function resolveRoomId(context: RouteContext) {
   return isValidRoomId(id) ? id : null;
 }
 
+/** One table so every action maps errors to statuses identically. */
+const ERROR_STATUS: Record<ActionError, number> = {
+  invalid: 400,
+  unauthorized: 401,
+  forbidden: 403,
+  "unknown-room": 410,
+  "not-member": 410,
+  "unknown-peer": 410,
+  "unknown-knock": 410,
+  "rate-limited": 429,
+};
+
+function actionResponse(result: ActionResult) {
+  if (!result.ok) return json({ error: result.error }, ERROR_STATUS[result.error]);
+  return json({ ok: true }, 200);
+}
+
+function isSignalPayload(data: unknown): data is SignalPayload {
+  if (!data || typeof data !== "object") return false;
+  const kind = (data as { kind?: unknown }).kind;
+  return kind === "description" || kind === "candidate";
+}
+
 export async function GET(request: Request, context: RouteContext) {
   const roomId = await resolveRoomId(context);
   if (!roomId) return json({ error: "invalid-room" }, 400);
 
+  const url = new URL(request.url);
+  const name = sanitizeName(url.searchParams.get(JOIN_PARAM.name));
+  const resumeToken = url.searchParams.get(JOIN_PARAM.resume);
+  const uid = sanitizeUid(url.searchParams.get(JOIN_PARAM.uid));
+
   let close: (() => void) | undefined;
-  let joined: { peerId: string; secret: string } | undefined;
+  let conn: Connection | undefined;
   let keepAlive: ReturnType<typeof setInterval> | undefined;
 
   const stream = new ReadableStream<Uint8Array>({
@@ -70,40 +117,31 @@ export async function GET(request: Request, context: RouteContext) {
         }
       };
 
-      const result = joinRoom(roomId, { emit: write, disconnect: () => close?.() });
+      // Emits welcome / waiting-approval / ended itself before returning.
+      conn = openStream(
+        roomId,
+        { name, resumeToken, uid },
+        { emit: write, disconnect: () => close?.() },
+      );
 
-      if (!result.ok) {
-        // Either a third participant, or someone re-opening a code whose session
-        // is already over. Refuse, and leave any established pair alone.
-        write({ t: "peer-left", reason: result.error === "spent" ? "session-over" : "room-full" });
-        close();
-        return;
-      }
+      // Refused on the spot (room-full): the stream is already closed.
+      if (conn.phase === "done") return;
 
-      joined = { peerId: result.peerId, secret: result.secret };
-      write({
-        t: "welcome",
-        peerId: result.peerId,
-        secret: result.secret,
-        role: result.role,
-        peerPresent: result.peerPresent,
-        isHost: result.isHost,
-        guestMayEnd: result.guestMayEnd,
-      });
-
-      // Proxies and load balancers drop idle streams; a comment frame is enough.
+      // Proxies and load balancers drop idle streams; knockers wait minutes,
+      // so they need the heartbeat as much as seated members do.
       keepAlive = setInterval(() => write({ t: "ping" }), SIGNAL_LIMITS.keepAliveMs);
       keepAlive.unref?.();
 
-      // Tab closed, navigated away, laptop lid shut: the room dies with it.
+      // Tab closed, reload, network drop. NOT a departure: a seated member
+      // only goes `away` and keeps its seat for the resume grace period.
       request.signal.addEventListener("abort", () => {
-        if (joined) leaveRoom(roomId, joined.peerId, "peer-left");
+        if (conn) streamAborted(conn);
         close?.();
       });
     },
 
     cancel() {
-      if (joined) leaveRoom(roomId, joined.peerId, "peer-left");
+      if (conn) streamAborted(conn);
       close?.();
     },
   });
@@ -123,6 +161,8 @@ export async function POST(request: Request, context: RouteContext) {
   const roomId = await resolveRoomId(context);
   if (!roomId) return json({ error: "invalid-room" }, 400);
 
+  // Every POST is authenticated. Anyone who merely saw an invite link must not
+  // be able to relay into, reshape, or end somebody else's session.
   const peerId = request.headers.get(PEER_ID_HEADER);
   const secret = request.headers.get(PEER_SECRET_HEADER);
   if (!peerId || !secret) return json({ error: "unauthorized" }, 401);
@@ -138,46 +178,58 @@ export async function POST(request: Request, context: RouteContext) {
   } catch {
     return json({ error: "invalid-json" }, 400);
   }
-
-  if (message.t === "bye") {
-    // Deliberate hang-up. Authenticated (anyone who merely saw the invite link
-    // must not be able to kill a live session) and authorised (only the host,
-    // or a guest the host has empowered, may end it on purpose).
-    const result = endSession(roomId, peerId, secret);
-    if (!result.ok) {
-      const status =
-        result.error === "unknown-room" ? 410 : result.error === "forbidden" ? 403 : 401;
-      return json({ error: result.error }, status);
-    }
-    return json({ ok: true }, 200);
-  }
-
-  if (message.t === "permission") {
-    if (typeof message.allow !== "boolean") return json({ error: "invalid-message" }, 400);
-    const result = setGuestMayEnd(roomId, peerId, secret, message.allow);
-    if (!result.ok) {
-      const status =
-        result.error === "unknown-room" ? 410 : result.error === "forbidden" ? 403 : 401;
-      return json({ error: result.error }, status);
-    }
-    return json({ ok: true }, 200);
-  }
-
-  if (message.t !== "signal" || !message.data || typeof message.data !== "object") {
+  if (!message || typeof message !== "object") {
     return json({ error: "invalid-message" }, 400);
   }
 
-  const kind = (message.data as { kind?: unknown }).kind;
-  if (kind !== "description" && kind !== "candidate") {
-    return json({ error: "invalid-message" }, 400);
+  switch (message.t) {
+    case "signal": {
+      if (typeof message.to !== "string" || !message.to || !isSignalPayload(message.data)) {
+        return json({ error: "invalid-message" }, 400);
+      }
+      return actionResponse(relaySignal(roomId, peerId, secret, message.to, message.data));
+    }
+    case "leave":
+      return actionResponse(leaveRoom(roomId, peerId, secret));
+    case "close":
+      return actionResponse(closeRoom(roomId, peerId, secret));
+    case "admit": {
+      if (typeof message.knockId !== "string" || typeof message.allow !== "boolean") {
+        return json({ error: "invalid-message" }, 400);
+      }
+      return actionResponse(answerKnock(roomId, peerId, secret, message.knockId, message.allow));
+    }
+    case "capacity": {
+      if (typeof message.value !== "number" || !Number.isFinite(message.value)) {
+        return json({ error: "invalid-message" }, 400);
+      }
+      return actionResponse(setCapacity(roomId, peerId, secret, message.value));
+    }
+    case "remove": {
+      if (typeof message.peerId !== "string" || !message.peerId) {
+        return json({ error: "invalid-message" }, 400);
+      }
+      return actionResponse(removePeer(roomId, peerId, secret, message.peerId));
+    }
+    case "pin": {
+      if (message.peerId !== null && (typeof message.peerId !== "string" || !message.peerId)) {
+        return json({ error: "invalid-message" }, 400);
+      }
+      return actionResponse(setPin(roomId, peerId, secret, message.peerId));
+    }
+    case "moderate": {
+      // Structural checks only; whether the action string is one of the four
+      // allowed values (and whether the caller may moderate) is authority that
+      // lives in rooms.ts, like every other semantic rule.
+      if (
+        (message.peerId !== null && (typeof message.peerId !== "string" || !message.peerId)) ||
+        typeof message.action !== "string"
+      ) {
+        return json({ error: "invalid-message" }, 400);
+      }
+      return actionResponse(moderate(roomId, peerId, secret, message.peerId, message.action));
+    }
+    default:
+      return json({ error: "invalid-message" }, 400);
   }
-
-  const result = relay(roomId, peerId, secret, { t: "signal", data: message.data });
-  if (!result.ok) {
-    const status =
-      result.error === "unknown-room" ? 410 : result.error === "rate-limited" ? 429 : 401;
-    return json({ error: result.error }, status);
-  }
-
-  return json({ ok: true, delivered: result.delivered }, 200);
 }

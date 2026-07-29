@@ -2,30 +2,43 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
-import { PeerSession, type SessionSnapshot } from "@/lib/peer-session";
+import { MeshSession, type LinkQuality, type MeshSnapshot } from "@/lib/mesh-session";
+import { ROOM_CAPACITY, type PeerId } from "@/lib/signal-protocol";
+import { TRANSFER_LIMITS, type SendTargets } from "@/lib/transfer-contract";
 
 /** Rendered while the session object is being constructed on mount. */
-const INITIAL: SessionSnapshot = {
+const INITIAL: MeshSnapshot = {
   phase: "joining",
-  role: null,
-  endReason: null,
-  error: null,
+  self: null,
+  participants: [],
+  capacity: ROOM_CAPACITY.default,
+  isHost: false,
+  pinnedByHost: null,
+  knocks: [],
   notes: [],
+  typingPeers: [],
   peerTyping: false,
-  doc: { text: "", rev: 0, at: 0, mine: false },
   transfers: [],
+  sink: {
+    tier: "memory",
+    streaming: false,
+    maxBytes: TRANSFER_LIMITS.maxMemoryBytes,
+    hasDestination: false,
+    destinationLabel: null,
+  },
+  canChooseFolder: false,
   media: {
     micOn: false,
     cameraOn: false,
     screenOn: false,
     remoteAudioLive: false,
     remoteVideoLive: false,
+    byPeer: {},
     version: 0,
   },
-  channelsReady: false,
-  isHost: false,
-  guestMayEnd: false,
-  canEndSession: false,
+  doc: { text: "", rev: 0, at: 0, mine: false },
+  error: null,
+  endReason: null,
 };
 
 const NO_SUBSCRIBE = () => () => {};
@@ -33,31 +46,50 @@ const getInitial = () => INITIAL;
 
 const TYPING_IDLE_MS = 1500;
 
-export function usePeerSession(roomId: string) {
-  const [session, setSession] = useState<PeerSession | null>(null);
+/**
+ * Binds one `MeshSession` to React. Returns a flat object: the snapshot
+ * spread open, plus streams and stable action callbacks.
+ *
+ * `useSessionSounds` and `useSessionNotifications` consume this object
+ * structurally — `phase`, `endReason`, `error`, `notes[].mine`,
+ * `transfers[]{key,name,direction,status,error}`, `media.{micOn,cameraOn,
+ * screenOn,remoteAudioLive,remoteVideoLive}` — so those fields keep their
+ * names and shapes across the mesh rewrite.
+ */
+export function usePeerSession(roomId: string, displayName = "") {
+  const [session, setSession] = useState<MeshSession | null>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingActive = useRef(false);
 
   useEffect(() => {
-    const instance = new PeerSession(roomId);
+    const instance = new MeshSession(roomId, displayName);
     setSession(instance);
     // Deferred a tick so StrictMode's dev-only mount/unmount/mount cycle never
-    // opens a first signalling stream: it would land as a second peer, seal the
-    // room, and tear it down for the surviving instance when it aborts.
+    // opens a first signalling stream: it would claim a seat, then abort and
+    // leave the surviving instance looking like a second participant.
     const startTimer = setTimeout(() => instance.start(), 0);
 
-    // Notify the peer eagerly on tab close; the server would notice the dropped
-    // stream anyway, but this makes the other side reset within a frame.
-    const onPageHide = () => instance.end("self-ended", true);
+    // A real unload (reload or tab close) must NOT send `leave`: the server
+    // holds the seat and the sessionStorage resume token reclaims it after a
+    // reload. handlePageHide only releases page-local resources.
+    const onPageHide = () => instance.handlePageHide();
     window.addEventListener("pagehide", onPageHide);
 
     return () => {
+      // Effect cleanup, by contrast, is an in-app departure (route change, or
+      // the StrictMode probe before start() ever ran): leave deliberately so
+      // the room is told immediately instead of after the away grace.
       clearTimeout(startTimer);
+      if (typingTimer.current) {
+        clearTimeout(typingTimer.current);
+        typingTimer.current = null;
+      }
+      typingActive.current = false;
       window.removeEventListener("pagehide", onPageHide);
-      instance.end("self-ended", true);
+      instance.leave();
       setSession(null);
     };
-  }, [roomId]);
+  }, [roomId, displayName]);
 
   const snapshot = useSyncExternalStore(
     session ? session.subscribe : NO_SUBSCRIBE,
@@ -94,23 +126,46 @@ export function usePeerSession(roomId: string) {
     }, TYPING_IDLE_MS);
   }, [session]);
 
+  /**
+   * Send to everyone (no second argument), to an explicit `SendTargets` list
+   * of peer ids, or — legacy convenience — to a single peer id string.
+   */
   const sendFiles = useCallback(
-    (files: File[]) => {
-      void session?.sendFiles(files);
+    (files: File[], to?: SendTargets | PeerId | null) => {
+      void session?.sendFiles(files, to);
     },
     [session],
   );
 
   const updateDoc = useCallback((text: string) => session?.updateDoc(text), [session]);
-
   const cancelTransfer = useCallback((key: string) => session?.cancelTransfer(key), [session]);
-  const endSession = useCallback(() => session?.end("self-ended", true), [session]);
 
-  /** Host only: grant or revoke the guest's right to end the session. */
-  const setGuestMayEnd = useCallback(
-    (allow: boolean) => session?.setGuestMayEnd(allow),
+  /** Continue a persisted partial transfer (a `partial:<uid>` snapshot key).
+   *  Works while the original sender is connected; honest error otherwise. */
+  const resumeTransfer = useCallback((key: string) => session?.resumeTransfer(key), [session]);
+  /** Forget a persisted partial transfer: its record and its stored bytes. */
+  const discardPartial = useCallback((key: string) => session?.discardPartial(key), [session]);
+
+  /** Prompt for a destination folder. Call from a user gesture; resolves
+   *  false when unsupported or cancelled. Capability updates in `sink`. */
+  const chooseSaveFolder = useCallback(
+    () => session?.chooseSaveFolder() ?? Promise.resolve(false),
     [session],
   );
+  /** Forget the chosen folder and fall back to the next sink tier. */
+  const clearSaveFolder = useCallback(() => session?.clearSaveFolder(), [session]);
+
+  /** Leave the room yourself; the others keep going. */
+  const leaveSession = useCallback(() => session?.leave(), [session]);
+  /** Host only: end the session for everyone (no-op for guests). */
+  const closeSession = useCallback(() => session?.close(), [session]);
+  /** Legacy alias for the old single "End session" button: the host closes
+   *  the room, anyone else just leaves. Prefer the two explicit actions. */
+  const endSession = useCallback(() => {
+    if (!session) return;
+    if (session.getSnapshot().isHost) session.close();
+    else session.leave();
+  }, [session]);
 
   const toggleMic = useCallback(() => session?.toggleMic() ?? Promise.resolve(), [session]);
   const toggleCamera = useCallback(() => session?.toggleCamera() ?? Promise.resolve(), [session]);
@@ -119,25 +174,76 @@ export function usePeerSession(roomId: string) {
     [session],
   );
 
+  // Host controls (the server rejects them from anyone else).
+  const admit = useCallback(
+    (knockId: string, allow: boolean) => session?.admit(knockId, allow),
+    [session],
+  );
+  const setCapacity = useCallback((value: number) => session?.setCapacity(value), [session]);
+  const removePeer = useCallback((peerId: PeerId) => session?.removePeer(peerId), [session]);
+  const pinPeer = useCallback((peerId: PeerId | null) => session?.pin(peerId), [session]);
+
   // An ended session has no streams. The MediaStream objects themselves live
   // for the whole session (tracks are added and removed on them), so without
   // this a <video> stays bound to an emptied stream after teardown.
   const live = snapshot.phase !== "ended";
 
+  /** Per-peer remote stream lookup; identity is stable, re-read on
+   *  `media.version` changes. Null when that link is not live. */
+  const getRemoteStream = useCallback(
+    (peerId: PeerId) => session?.getRemoteStream(peerId) ?? null,
+    [session],
+  );
+
+  /** Polled by the participants panel while it is open; never in snapshots. */
+  const getLinkQuality = useCallback(
+    (peerId: PeerId): Promise<LinkQuality> =>
+      session?.getLinkQuality(peerId) ?? Promise.resolve({ state: "closed", rttMs: null }),
+    [session],
+  );
+
+  /** DTLS emoji fingerprint for one peer; null until directly connected. */
+  const getPairFingerprint = useCallback(
+    (peerId: PeerId) => session?.getPairFingerprint(peerId) ?? Promise.resolve(null),
+    [session],
+  );
+
+  // Convenience map for grid rendering. Rebuilt per snapshot render — with a
+  // 7-person cap this is at most six lookups.
+  const remoteStreams = new Map<PeerId, MediaStream>();
+  if (live && session) {
+    for (const participant of snapshot.participants) {
+      const stream = session.getRemoteStream(participant.id);
+      if (stream) remoteStreams.set(participant.id, stream);
+    }
+  }
+
   return {
     ...snapshot,
     localStream: live ? (session?.getLocalStream() ?? null) : null,
-    remoteStream: live ? (session?.getRemoteStream() ?? null) : null,
+    remoteStreams,
+    getRemoteStream,
+    getLinkQuality,
+    getPairFingerprint,
     sendNote,
     notifyTyping,
     updateDoc,
     sendFiles,
     cancelTransfer,
+    resumeTransfer,
+    discardPartial,
+    chooseSaveFolder,
+    clearSaveFolder,
+    leaveSession,
+    closeSession,
     endSession,
-    setGuestMayEnd,
     toggleMic,
     toggleCamera,
     toggleScreenShare,
+    admit,
+    setCapacity,
+    removePeer,
+    pinPeer,
   };
 }
 

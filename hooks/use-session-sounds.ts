@@ -17,6 +17,8 @@ export type SessionSoundsInput = {
   notes: ReadonlyArray<{ mine: boolean }>;
   transfers: ReadonlyArray<{ key: string; direction: string; status: string }>;
   media: { micOn: boolean; cameraOn: boolean; screenOn: boolean };
+  /** Host only (always empty for guests): pending join requests. */
+  knocks?: ReadonlyArray<{ knockId: string }>;
 };
 
 /** What we remember between renders — just enough to detect edges. */
@@ -24,6 +26,7 @@ type Remembered = {
   phase: string;
   error: string | null;
   noteCount: number;
+  knockIds: Set<string>;
   transferStatus: Map<string, { direction: string; status: string }>;
   micOn: boolean;
   cameraOn: boolean;
@@ -39,6 +42,7 @@ function remember(input: SessionSoundsInput): Remembered {
     phase: input.phase,
     error: input.error ?? null,
     noteCount: input.notes.length,
+    knockIds: new Set((input.knocks ?? []).map((knock) => knock.knockId)),
     transferStatus,
     micOn: input.media.micOn,
     cameraOn: input.media.cameraOn,
@@ -86,6 +90,14 @@ export function useSessionSounds(input: SessionSoundsInput) {
     }
 
     if (now.phase === "connected" && before.phase !== "connected") fire("peerJoined");
+
+    // --- a NEW knock (not merely one remaining answered/expired) taps twice.
+    for (const id of now.knockIds) {
+      if (!before.knockIds.has(id)) {
+        fire("knock");
+        break;
+      }
+    }
 
     // --- notes: the array only ever appends while a session is live.
     if (now.noteCount > before.noteCount) {
