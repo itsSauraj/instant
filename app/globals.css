@@ -46,6 +46,10 @@
   --border: oklch(0.915 0.014 290);
   --input: oklch(0.915 0.014 290);
   --ring: oklch(0.55 0.17 292);
+
+  /* The spec's `soft` shadow: a deep drop, always dark — never derived from
+     the foreground, which would invert into a pale halo in dark mode. */
+  --panel-shadow: 0 16px 40px -20px oklch(0.22 0.03 285 / 0.35);
 }
 
 .dark {
@@ -81,6 +85,10 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 14%);
   --ring: oklch(0.81 0.1 293);
+
+  /* Deeper and wider than light mode: on the void background a card reads as
+     floating only if the drop genuinely darkens the glow behind it. */
+  --panel-shadow: 0 20px 55px -18px oklch(0 0 0 / 0.75);
 }
 
 @theme inline {
@@ -115,6 +123,8 @@
 
   /* Accent halo used on hover for primary actions (`shadow-glow`). */
   --shadow-glow: 0 0 22px -4px color-mix(in oklab, var(--primary) 55%, transparent);
+  /* The panel/card drop shadow as a utility (`shadow-soft`). */
+  --shadow-soft: var(--panel-shadow);
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
@@ -155,8 +165,7 @@
 @layer utilities {
   .panel {
     @apply rounded-xl border bg-card/70 backdrop-blur-xl;
-    /* Soft deep drop, tinted from the theme so it works in both modes. */
-    box-shadow: 0 16px 40px -20px color-mix(in oklab, var(--foreground) 50%, transparent);
+    box-shadow: var(--panel-shadow);
   }
 
   .scroll-slim {
