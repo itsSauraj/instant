@@ -64,13 +64,19 @@ export function MediaPanel({
 
   return (
     <div className="panel flex h-full flex-col overflow-hidden">
-      <div className="relative flex-1 bg-black/85">
+      {/* min-h-0 plus an absolutely positioned surface: the video's intrinsic
+          size (a portrait phone camera is very tall) must never inflate this
+          flex item, or it pushes the controls out of the clipped panel. */}
+      <div className="relative min-h-0 flex-1 bg-black/85">
         <Surface
           stream={remoteStream}
           version={media.version}
           muted={muted}
           label="Live video from the other person"
-          className={cn("size-full object-contain", !media.remoteVideoLive && "invisible")}
+          className={cn(
+            "absolute inset-0 size-full object-contain",
+            !media.remoteVideoLive && "invisible",
+          )}
         />
 
         {!media.remoteVideoLive ? (
@@ -118,7 +124,7 @@ export function MediaPanel({
         ) : null}
       </div>
 
-      <div className="space-y-2 border-t p-3 sm:p-4">
+      <div className="shrink-0 space-y-2 border-t p-3 sm:p-4">
         <div className="flex items-center justify-center gap-2">
           <Control
             active={media.micOn}
