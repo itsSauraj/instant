@@ -39,6 +39,13 @@ export function MediaPanel({
   const [muted, setMuted] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Screen capture is missing from every iOS browser and most Android ones.
+  // Detected after mount (not during render) so server and client HTML agree.
+  const [canShareScreen, setCanShareScreen] = useState(false);
+  useEffect(() => {
+    setCanShareScreen(typeof navigator.mediaDevices?.getDisplayMedia === "function");
+  }, []);
+
   const run = (id: string, action: () => Promise<void>) => async () => {
     setDeviceError(null);
     setBusy(id);
@@ -140,13 +147,15 @@ export function MediaPanel({
             on={{ icon: Video, label: "Turn off camera" }}
             off={{ icon: VideoOff, label: "Turn on camera" }}
           />
-          <Control
-            active={media.screenOn}
-            disabled={disabled || busy !== null}
-            onClick={run("screen", onToggleScreen)}
-            on={{ icon: MonitorUp, label: "Stop sharing screen" }}
-            off={{ icon: MonitorOff, label: "Share your screen" }}
-          />
+          {canShareScreen ? (
+            <Control
+              active={media.screenOn}
+              disabled={disabled || busy !== null}
+              onClick={run("screen", onToggleScreen)}
+              on={{ icon: MonitorUp, label: "Stop sharing screen" }}
+              off={{ icon: MonitorOff, label: "Share your screen" }}
+            />
+          ) : null}
           <div className="mx-1 h-8 w-px bg-border" />
           <Control
             active={!muted}
