@@ -71,10 +71,17 @@ export default function TermsPage() {
         </p>
       </LegalSection>
 
-      <LegalSection heading="Changes">
+      <LegalSection heading="Changes and contact">
         <p>
           These terms may change; the date above tells you when they last did. Using the
-          service after a change means you accept the updated terms.
+          service after a change means you accept the updated terms. Questions:{" "}
+          <a
+            href="mailto:contact@saurabh-yadav.me"
+            className="text-foreground underline underline-offset-2"
+          >
+            contact@saurabh-yadav.me
+          </a>
+          .
         </p>
       </LegalSection>
     </LegalPage>
