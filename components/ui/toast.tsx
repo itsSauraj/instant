@@ -24,10 +24,9 @@ const VARIANT: Record<
  * Fixed stack for in-app notifications. Mount it exactly once, in the room
  * shell.
  *
- * Placement: top-right, below the header. On phones the tab bar spans the
- * full width directly under the header and the composer/media controls own
- * the bottom edge, so the stack drops just below the tab bar; on sm+ the tab
- * bar shrinks to the left, freeing the area right under the header.
+ * Placement: bottom-right, raised on phones so the composer and media
+ * controls that own the bottom edge stay clear. column-reverse keeps the
+ * newest toast nearest the corner.
  */
 export function ToastViewport() {
   const toasts = useToasts();
@@ -39,8 +38,8 @@ export function ToastViewport() {
       aria-label="Notifications"
       aria-live="polite"
       className={cn(
-        "pointer-events-none fixed z-40 flex w-[min(20rem,calc(100vw-1.5rem))] flex-col gap-2",
-        "top-[6.75rem] right-3 sm:top-[4.25rem] sm:right-5",
+        "pointer-events-none fixed z-40 flex w-[min(20rem,calc(100vw-1.5rem))] flex-col-reverse gap-2",
+        "right-3 bottom-24 sm:right-5 sm:bottom-5",
       )}
     >
       {toasts.map((toast) => (
@@ -62,7 +61,7 @@ function ToastItem({ toast }: { toast: Toast }) {
       if (prefersReducedMotion()) return; // the CSS media query pins opacity to 1
       gsap.fromTo(
         ref.current,
-        { opacity: 0, y: -10, scale: 0.97 },
+        { opacity: 0, y: 10, scale: 0.97 },
         { opacity: 1, y: 0, scale: 1, duration: DURATION.fast, ease: EASE.pop, clearProps: "transform" },
       );
     },
@@ -74,7 +73,7 @@ function ToastItem({ toast }: { toast: Toast }) {
   useGSAP(
     () => {
       if (!toast.leaving || !ref.current || prefersReducedMotion()) return;
-      gsap.to(ref.current, { opacity: 0, y: -8, scale: 0.97, duration: 0.2, ease: EASE.inOut });
+      gsap.to(ref.current, { opacity: 0, y: 8, scale: 0.97, duration: 0.2, ease: EASE.inOut });
     },
     { dependencies: [toast.leaving], scope: ref },
   );
