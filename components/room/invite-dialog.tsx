@@ -1,10 +1,9 @@
 "use client";
 
-import { Link2, Lock, QrCode, UserPlus } from "lucide-react";
+import { Link2, QrCode, UserPlus } from "lucide-react";
 
 import { CopyField } from "@/components/copy-field";
 import { QrInvite } from "@/components/room/qr-invite";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -29,40 +28,36 @@ export function InviteDialog({ roomId, inviteUrl }: { roomId: string; inviteUrl:
           <span className="hidden sm:inline">Invite</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[85dvh] overflow-y-auto">
-        <DialogHeader>
+      {/* Compact enough to fit a phone viewport without scrolling; the
+          overflow rule is only a failsafe for very short landscape screens. */}
+      <DialogContent className="scroll-slim max-h-[90dvh] gap-3 overflow-y-auto p-5 sm:p-6">
+        <DialogHeader className="gap-1 pr-6">
           <DialogTitle>Invite to this session</DialogTitle>
           <DialogDescription>
-            Sessions hold exactly two people — the next person to open this link takes the free
-            seat.
+            Only the next person to open this link can join.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 text-left">
+        <div className="space-y-2.5 text-left">
           <div>
-            <p className="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-xs font-medium">
+            <p className="text-muted-foreground mb-1 flex items-center gap-1.5 text-xs font-medium">
               <Link2 className="size-3.5" />
               Invite link
             </p>
             <CopyField value={inviteUrl} label="Copy invite link" />
           </div>
           <div>
-            <p className="text-muted-foreground mb-1.5 text-xs font-medium">Or share the code</p>
+            <p className="text-muted-foreground mb-1 text-xs font-medium">Or share the code</p>
             <CopyField value={prettyRoomId(roomId)} label="Copy session code" />
           </div>
           <div>
-            <p className="text-muted-foreground mb-2 flex items-center gap-1.5 text-xs font-medium">
+            <p className="text-muted-foreground mb-1.5 flex items-center gap-1.5 text-xs font-medium">
               <QrCode className="size-3.5" />
               Or scan it with a phone
             </p>
-            <QrInvite url={inviteUrl} showUrl={false} />
+            <QrInvite url={inviteUrl} showUrl={false} size={124} />
           </div>
         </div>
-
-        <Badge variant="muted" className="mx-auto gap-1.5 py-1">
-          <Lock />
-          Only the next person to open this link can join
-        </Badge>
       </DialogContent>
     </Dialog>
   );

@@ -2,16 +2,26 @@
 
 import { useRef } from "react";
 import { useGSAP } from "@gsap/react";
-import { Link2, Loader2, Lock, QrCode } from "lucide-react";
+import { Link2, Loader2, Lock, QrCode, X } from "lucide-react";
 
 import { CopyField } from "@/components/copy-field";
 import { QrInvite } from "@/components/room/qr-invite";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { EASE, gsap, prefersReducedMotion, revealIn } from "@/lib/animation";
 import { prettyRoomId } from "@/lib/ids";
 
 /** Shown while the first participant is alone in the room. */
-export function LobbyOverlay({ roomId, inviteUrl }: { roomId: string; inviteUrl: string }) {
+export function LobbyOverlay({
+  roomId,
+  inviteUrl,
+  onDismiss,
+}: {
+  roomId: string;
+  inviteUrl: string;
+  /** Lets the creator close the overlay and use the room while alone. */
+  onDismiss?: () => void;
+}) {
   const scope = useRef<HTMLDivElement>(null);
   const ringRef = useRef<HTMLSpanElement>(null);
 
@@ -38,7 +48,18 @@ export function LobbyOverlay({ roomId, inviteUrl }: { roomId: string; inviteUrl:
     >
       {/* my-auto rather than centring alone: the panel is tall enough with the
           QR that it must be able to scroll on a short viewport. */}
-      <div className="panel my-auto w-full max-w-md p-6 text-center sm:p-7">
+      <div className="panel relative my-auto w-full max-w-md p-6 text-center sm:p-7">
+        {onDismiss ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onDismiss}
+            aria-label="Close and wait in the room"
+            className="text-muted-foreground absolute top-2.5 right-2.5 size-8"
+          >
+            <X className="size-4" />
+          </Button>
+        ) : null}
         <div className="relative mx-auto grid size-14 place-items-center">
           <span
             ref={ringRef}

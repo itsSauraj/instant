@@ -6,9 +6,6 @@ import QRCode from "qrcode";
 import { pulse } from "@/lib/animation";
 import { cn } from "@/lib/utils";
 
-/** CSS display size; the canvas renders at 2x so it stays crisp on hidpi. */
-const QR_SIZE = 168;
-
 type QrState = "pending" | "ready" | "failed";
 
 /**
@@ -23,11 +20,14 @@ export function QrInvite({
   url,
   className,
   showUrl = true,
+  size = 168,
 }: {
   url: string;
   className?: string;
   /** Hide the printed URL where the caller already shows it (e.g. the lobby). */
   showUrl?: boolean;
+  /** CSS display size; the canvas renders at 2x so it stays crisp on hidpi. */
+  size?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [state, setState] = useState<QrState>("pending");
@@ -46,7 +46,7 @@ export function QrInvite({
     QRCode.toCanvas(canvas, url, {
       errorCorrectionLevel: "M",
       margin: 2, // quiet zone, part of the spec — scanners rely on it
-      width: QR_SIZE * 2,
+      width: size * 2,
       // Fixed dark-on-white, independent of the app theme (see backing note).
       color: { dark: "#111318", light: "#ffffff" },
     })
@@ -54,8 +54,8 @@ export function QrInvite({
         if (cancelled) return;
         // The library sets inline width/height to the raw pixel size; pin the
         // display size back down so the 2x render just adds density.
-        canvas.style.width = `${QR_SIZE}px`;
-        canvas.style.height = `${QR_SIZE}px`;
+        canvas.style.width = `${size}px`;
+        canvas.style.height = `${size}px`;
         setState("ready");
         pulse(canvas); // respects prefers-reduced-motion internally
       })
@@ -68,7 +68,7 @@ export function QrInvite({
     };
     // Regenerating draws over the previous code in place, so a URL change
     // never flashes an empty square.
-  }, [url]);
+  }, [url, size]);
 
   return (
     <div className={cn("flex flex-col items-center gap-2", className)}>
@@ -86,22 +86,22 @@ export function QrInvite({
         role="img"
         aria-label={`QR code for the invite link ${url}`}
         className="grid place-items-center rounded-lg border bg-white p-2 shadow-xs"
-        style={{ minWidth: QR_SIZE + 16, minHeight: QR_SIZE + 16 }}
+        style={{ minWidth: size + 16, minHeight: size + 16 }}
       >
         <canvas
           ref={canvasRef}
           aria-hidden
-          width={QR_SIZE}
-          height={QR_SIZE}
+          width={size}
+          height={size}
           className={cn(state === "failed" && "hidden")}
-          style={{ width: QR_SIZE, height: QR_SIZE }}
+          style={{ width: size, height: size }}
         />
         {state === "failed" ? (
           // Generation failed (out of memory, bizarre URL...): degrade to the
           // URL as selectable text — never a silent blank square.
           <span
             className="p-1 text-center font-mono text-[0.65rem] break-all text-neutral-900 select-all"
-            style={{ maxWidth: QR_SIZE }}
+            style={{ maxWidth: size }}
           >
             {url}
           </span>

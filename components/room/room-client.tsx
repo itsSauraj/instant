@@ -41,6 +41,9 @@ const TABS: { key: TabKey; label: string; icon: typeof StickyNote }[] = [
 export function RoomClient({ roomId }: { roomId: string }) {
   const session = usePeerSession(roomId);
   const [tab, setTab] = useState<TabKey>("notes");
+  // The creator may close the waiting overlay and use the room alone; the
+  // Invite button in the header brings the same content back at any time.
+  const [lobbyDismissed, setLobbyDismissed] = useState(false);
   const scope = useRef<HTMLDivElement>(null);
 
   // Each of these edge-detects on the session snapshot, so they must see every
@@ -92,7 +95,7 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const mediaLive = session.media.remoteAudioLive || session.media.remoteVideoLive;
 
   return (
-    <div className="relative mx-auto flex h-dvh w-full max-w-6xl flex-col px-4 py-4 sm:px-6">
+    <div className="relative flex h-dvh w-full flex-col px-4 py-4 sm:px-6 xl:px-10">
       <header ref={scope} className="flex flex-wrap items-center gap-3">
         <Brand />
 
@@ -228,7 +231,13 @@ export function RoomClient({ roomId }: { roomId: string }) {
         </TabsContent>
       </Tabs>
 
-      {session.phase === "waiting" ? <LobbyOverlay roomId={roomId} inviteUrl={inviteUrl} /> : null}
+      {session.phase === "waiting" && !lobbyDismissed ? (
+        <LobbyOverlay
+          roomId={roomId}
+          inviteUrl={inviteUrl}
+          onDismiss={() => setLobbyDismissed(true)}
+        />
+      ) : null}
       {ended ? <EndedOverlay reason={session.endReason} error={session.error} /> : null}
 
       <ToastViewport />
