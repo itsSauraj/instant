@@ -244,7 +244,7 @@ function EmptyNotes() {
       <StickyNote className="size-8 opacity-40" />
       <p className="text-sm">No notes yet.</p>
       <p className="max-w-xs text-xs">
-        Notes exist only in these two browsers for the length of the session.
+        Notes stay in this session and disappear when it ends.
       </p>
     </div>
   );

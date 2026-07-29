@@ -37,7 +37,7 @@ export default function RoomError({
         <p className="text-muted-foreground mt-1.5 text-sm text-pretty">
           Something went wrong while rendering this session, and the peer connection has been lost.
           Notes and files shared here lived only in this page and are gone. Trying again reloads the
-          session view, but it cannot bring the old connection back — you may need a fresh invite.
+          session view, but it cannot bring the old connection back. You may need a fresh invite.
         </p>
 
         <p className="bg-muted/60 text-muted-foreground mt-4 rounded-lg border px-3 py-2 text-left font-mono text-xs">

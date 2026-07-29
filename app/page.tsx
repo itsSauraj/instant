@@ -62,7 +62,7 @@ export default function HomePage() {
           </div>
         </div>
         <p className="text-muted-foreground pt-4 text-center text-xs">
-          Peer-to-peer over WebRTC · encrypted in transit by DTLS-SRTP · nothing stored server-side
+          Peer-to-peer. Nothing is stored on a server.
         </p>
       </footer>
     </div>

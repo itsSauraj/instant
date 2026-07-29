@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, FileText } from "lucide-react";
+import { Download, Eye, FileText, Pencil } from "lucide-react";
 
+import { NoteMarkdown } from "@/components/room/note-markdown";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { MAX_DOC_LENGTH } from "@/lib/peer-protocol";
@@ -21,13 +22,19 @@ export function DocPanel({
   onUpdate: (text: string) => void;
 }) {
   const [text, setText] = useState(doc.text);
+  const [mode, setMode] = useState<"edit" | "preview">("edit");
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
   // Adopt session-side changes: the peer's live edits, and the copy restored
   // from localStorage on mount. Our own in-flight typing is left alone.
   useEffect(() => {
     const el = editorRef.current;
-    if (!el || doc.text === el.value) return;
+    if (!el) {
+      // Preview mode: no caret to protect, adopt the latest text directly.
+      setText(doc.text);
+      return;
+    }
+    if (doc.text === el.value) return;
 
     const focused = document.activeElement === el;
     if (doc.mine && focused) return; // echo of a local keystroke mid-render
@@ -45,7 +52,7 @@ export function DocPanel({
         );
       });
     }
-  }, [doc.text, doc.mine]);
+  }, [doc.text, doc.mine, mode]);
 
   const download = (ext: "txt" | "md") => {
     const blob = new Blob([editorRef.current?.value ?? text], {
@@ -73,10 +80,33 @@ export function DocPanel({
           aria-hidden
         />
         <span className="text-muted-foreground text-xs">
-          {connected ? "Live — both of you can edit" : "Offline — edits sync when the peer joins"}
+          {connected ? "Live editing" : "Offline. Edits sync when someone joins."}
         </span>
 
         <div className="ml-auto flex items-center gap-1.5">
+          <div className="bg-muted/60 mr-1 flex items-center gap-0.5 rounded-lg border p-0.5">
+            {(
+              [
+                { key: "edit", label: "Edit", icon: Pencil },
+                { key: "preview", label: "Preview", icon: Eye },
+              ] as const
+            ).map(({ key, label, icon: Icon }) => (
+              <Button
+                key={key}
+                variant="ghost"
+                size="sm"
+                onClick={() => setMode(key)}
+                aria-pressed={mode === key}
+                className={cn(
+                  "h-7 gap-1.5 px-2.5",
+                  mode === key && "bg-card text-foreground shadow-sm",
+                )}
+              >
+                <Icon className="size-3.5" />
+                <span className="hidden sm:inline">{label}</span>
+              </Button>
+            ))}
+          </div>
           {(["md", "txt"] as const).map((ext) => (
             <Tooltip key={ext}>
               <TooltipTrigger asChild>
@@ -96,25 +126,38 @@ export function DocPanel({
         </div>
       </div>
 
-      <textarea
-        ref={editorRef}
-        value={text}
-        maxLength={MAX_DOC_LENGTH}
-        onChange={(event) => {
-          setText(event.target.value);
-          onUpdate(event.target.value);
-        }}
-        placeholder="Write together. Everything here is synced live, kept on this device, and downloadable as .md or .txt."
-        aria-label="Shared document"
-        spellCheck={false}
-        className={cn(
-          "scroll-slim min-h-0 flex-1 resize-none bg-transparent p-4 font-mono text-sm leading-relaxed",
-          "placeholder:text-muted-foreground/70 outline-none sm:p-5",
-        )}
-      />
+      {mode === "edit" ? (
+        <textarea
+          ref={editorRef}
+          value={text}
+          maxLength={MAX_DOC_LENGTH}
+          onChange={(event) => {
+            setText(event.target.value);
+            onUpdate(event.target.value);
+          }}
+          placeholder="Write together. Changes sync live and stay saved on this device."
+          aria-label="Shared document"
+          spellCheck={false}
+          className={cn(
+            "scroll-slim min-h-0 flex-1 resize-none bg-transparent p-4 font-mono text-sm leading-relaxed",
+            "placeholder:text-muted-foreground/70 outline-none sm:p-5",
+          )}
+        />
+      ) : (
+        <div
+          aria-label="Shared document preview"
+          className="scroll-slim min-h-0 flex-1 overflow-y-auto p-4 text-sm sm:p-5"
+        >
+          {text ? (
+            <NoteMarkdown text={text} />
+          ) : (
+            <p className="text-muted-foreground">Nothing to preview yet.</p>
+          )}
+        </div>
+      )}
 
       <div className="text-muted-foreground flex shrink-0 items-center justify-between border-t px-3 py-2 text-xs sm:px-4">
-        <span>Saved on this device — ending the session does not delete it.</span>
+        <span>Saved on this device.</span>
         <span className="tabular-nums">
           {text.length.toLocaleString()} / {MAX_DOC_LENGTH.toLocaleString()}
         </span>

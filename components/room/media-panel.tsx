@@ -98,7 +98,7 @@ export function MediaPanel({
               </div>
               <p className="text-sm font-medium text-white/85">
                 {media.remoteAudioLive
-                  ? "Audio only — camera is off on the other side"
+                  ? "Audio only. The camera is off on the other side."
                   : disabled
                     ? "Waiting for the connection"
                     : "The other side hasn't turned on a camera"}
@@ -166,18 +166,17 @@ export function MediaPanel({
           />
         </div>
 
-        <p
-          role={deviceError ? "alert" : undefined}
-          className={cn(
-            "text-center text-xs",
-            deviceError ? "text-destructive" : "text-muted-foreground",
-          )}
-        >
-          {deviceError ??
-            (media.screenOn && media.cameraOn
-              ? "Screen share is being sent; your camera stays in the local preview."
-              : "Media flows straight to the other browser and is encrypted by DTLS-SRTP.")}
-        </p>
+        {deviceError || (media.screenOn && media.cameraOn) ? (
+          <p
+            role={deviceError ? "alert" : undefined}
+            className={cn(
+              "text-center text-xs",
+              deviceError ? "text-destructive" : "text-muted-foreground",
+            )}
+          >
+            {deviceError ?? "Screen share is being sent; your camera stays in the local preview."}
+          </p>
+        ) : null}
       </div>
     </div>
   );
