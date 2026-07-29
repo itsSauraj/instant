@@ -30,7 +30,7 @@ export function InviteDialog({ roomId, inviteUrl }: { roomId: string; inviteUrl:
       </DialogTrigger>
       {/* Compact enough to fit a phone viewport without scrolling; the
           overflow rule is only a failsafe for very short landscape screens. */}
-      <DialogContent className="scroll-slim max-h-[90dvh] gap-3 overflow-y-auto p-5 sm:p-6">
+      <DialogContent className="scroll-slim max-h-[90dvh] gap-3 overflow-x-hidden overflow-y-auto p-5 sm:p-6">
         <DialogHeader className="gap-1 pr-6">
           <DialogTitle>Invite to this session</DialogTitle>
           <DialogDescription>
