@@ -38,9 +38,22 @@ export const MAX_ACTIVE_INCOMING_TRANSFERS = 4;
 /** Generous enough for real code snippets now that notes render markdown. */
 export const MAX_NOTE_LENGTH = 20_000;
 
+/**
+ * The shared doc is synced as one frame per (debounced) edit. Kept well under
+ * what modern SCTP stacks accept as a single message even if every character
+ * is multi-byte.
+ */
+export const MAX_DOC_LENGTH = 50_000;
+
 export type NoteFrame =
   | { k: "note"; id: string; text: string; at: number }
-  | { k: "typing"; on: boolean };
+  | { k: "typing"; on: boolean }
+  /**
+   * Full-text, last-writer-wins doc sync. `rev` totally orders edits between
+   * the two peers (ties broken by `at`); with only two writers this converges
+   * without needing OT/CRDT machinery.
+   */
+  | { k: "doc"; text: string; rev: number; at: number };
 
 export type FileFrame =
   | { k: "offer"; id: number; name: string; size: number; mime: string }

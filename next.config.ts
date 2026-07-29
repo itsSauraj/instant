@@ -21,7 +21,8 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   // blob:: received-file previews (components/room/files-panel.tsx renders
   // <img src={URL.createObjectURL(...)}>). data:: small inline images/SVGs.
-  "img-src 'self' blob: data:",
+  // robohash.org: generated participant avatars (components/room/presence.tsx).
+  "img-src 'self' blob: data: https://robohash.org",
   // blob:: received audio/video files played from object URLs. mediastream::
   // live camera/screen streams if ever attached by URL — the app attaches them
   // via srcObject, which CSP does not consult, so this is belt-and-braces.

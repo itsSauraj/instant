@@ -2,16 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useGSAP } from "@gsap/react";
-import { AlertTriangle, FileUp, LogOut, StickyNote, Video } from "lucide-react";
+import { AlertTriangle, FileText, FileUp, LogOut, StickyNote, Video } from "lucide-react";
 
 import { Brand } from "@/components/brand";
 import { ConnectionStatus } from "@/components/room/connection-status";
+import { DocPanel } from "@/components/room/doc-panel";
 import { EndedOverlay } from "@/components/room/ended-overlay";
 import { FilesPanel } from "@/components/room/files-panel";
 import { HostPanel } from "@/components/room/host-panel";
+import { InviteDialog } from "@/components/room/invite-dialog";
 import { LobbyOverlay } from "@/components/room/lobby-overlay";
 import { MediaPanel } from "@/components/room/media-panel";
 import { NotesPanel } from "@/components/room/notes-panel";
+import { Presence } from "@/components/room/presence";
 import { SoundToggle } from "@/components/room/sound-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
@@ -26,10 +29,11 @@ import { useTitleAlert } from "@/hooks/use-title-alert";
 import { revealIn } from "@/lib/animation";
 import { prettyRoomId } from "@/lib/ids";
 
-type TabKey = "notes" | "files" | "media";
+type TabKey = "notes" | "files" | "media" | "doc";
 
 const TABS: { key: TabKey; label: string; icon: typeof StickyNote }[] = [
   { key: "notes", label: "Notes", icon: StickyNote },
+  { key: "doc", label: "Doc", icon: FileText },
   { key: "files", label: "Files", icon: FileUp },
   { key: "media", label: "Audio & video", icon: Video },
 ];
@@ -76,8 +80,10 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const unread = {
     notes: tab === "notes" ? 0 : Math.max(0, session.notes.length - seen.notes),
     files: tab === "files" ? 0 : Math.max(0, session.transfers.length - seen.files),
-    // Media has no history to be unread; the tab shows liveness instead.
+    // Media has no history to be unread; the tab shows liveness instead. The
+    // doc is one continuously-edited surface rather than a queue of events.
     media: 0,
+    doc: 0,
   } satisfies Record<TabKey, number>;
 
   const transferRunning = session.transfers.some(
@@ -100,6 +106,8 @@ export function RoomClient({ roomId }: { roomId: string }) {
         </Tooltip>
 
         <div data-anim="in" className="ml-auto flex items-center gap-2">
+          <Presence roomId={roomId} isHost={session.isHost} phase={session.phase} />
+          <InviteDialog roomId={roomId} inviteUrl={inviteUrl} />
           <ConnectionStatus phase={session.phase} />
           <SoundToggle />
           <ThemeToggle />
@@ -186,6 +194,15 @@ export function RoomClient({ roomId }: { roomId: string }) {
             disabled={!connected}
             onSend={session.sendNote}
             onTyping={session.notifyTyping}
+          />
+        </TabsContent>
+
+        <TabsContent value="doc" forceMount hidden={tab !== "doc"} className="min-h-0">
+          <DocPanel
+            doc={session.doc}
+            roomId={roomId}
+            connected={connected}
+            onUpdate={session.updateDoc}
           />
         </TabsContent>
 

@@ -12,6 +12,7 @@ const INITIAL: SessionSnapshot = {
   error: null,
   notes: [],
   peerTyping: false,
+  doc: { text: "", rev: 0, at: 0, mine: false },
   transfers: [],
   media: {
     micOn: false,
@@ -100,6 +101,8 @@ export function usePeerSession(roomId: string) {
     [session],
   );
 
+  const updateDoc = useCallback((text: string) => session?.updateDoc(text), [session]);
+
   const cancelTransfer = useCallback((key: string) => session?.cancelTransfer(key), [session]);
   const endSession = useCallback(() => session?.end("self-ended", true), [session]);
 
@@ -127,6 +130,7 @@ export function usePeerSession(roomId: string) {
     remoteStream: live ? (session?.getRemoteStream() ?? null) : null,
     sendNote,
     notifyTyping,
+    updateDoc,
     sendFiles,
     cancelTransfer,
     endSession,

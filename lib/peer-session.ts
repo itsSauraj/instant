@@ -1,6 +1,7 @@
 import { FileTransferManager, type Transfer } from "@/lib/file-transfer";
 import {
   CHANNEL,
+  MAX_DOC_LENGTH,
   MAX_NOTE_LENGTH,
   type NoteFrame,
 } from "@/lib/peer-protocol";
@@ -19,6 +20,15 @@ export type Note = {
   id: string;
   text: string;
   at: number;
+  mine: boolean;
+};
+
+export type DocState = {
+  text: string;
+  /** Monotonic edit counter shared by both peers; the higher revision wins. */
+  rev: number;
+  at: number;
+  /** True when the latest applied edit was made locally. */
   mine: boolean;
 };
 
@@ -41,6 +51,8 @@ export type SessionSnapshot = {
   peerTyping: boolean;
   transfers: Transfer[];
   media: MediaState;
+  /** The live-synced shared document. Survives the session via localStorage. */
+  doc: DocState;
   /** True once the file channel can accept data. */
   channelsReady: boolean;
   /** True for the session creator (the room's first occupant). */
@@ -131,6 +143,9 @@ export class PeerSession {
   private peerTyping = false;
   private typingTimer: ReturnType<typeof setTimeout> | null = null;
 
+  private doc: DocState = { text: "", rev: 0, at: 0, mine: false };
+  private docSendTimer: ReturnType<typeof setTimeout> | null = null;
+
   private phase: SessionPhase = "idle";
   private endReason: EndReason | null = null;
   private error: string | null = null;
@@ -139,7 +154,10 @@ export class PeerSession {
   private snapshot: SessionSnapshot = this.build();
   private throttleTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(private readonly roomId: string) {}
+  constructor(private readonly roomId: string) {
+    this.doc = this.loadDoc();
+    this.snapshot = this.build();
+  }
 
   // ------------------------------------------------------------------ store
 
@@ -163,6 +181,7 @@ export class PeerSession {
       error: this.error,
       notes: this.notes,
       peerTyping: this.peerTyping,
+      doc: this.doc,
       transfers: this.files?.list() ?? [],
       media: {
         micOn: Boolean(this.micTrack),
@@ -260,6 +279,12 @@ export class PeerSession {
       clearTimeout(this.typingTimer);
       this.typingTimer = null;
     }
+    if (this.docSendTimer) {
+      clearTimeout(this.docSendTimer);
+      this.docSendTimer = null;
+    }
+    // The doc itself deliberately survives teardown: it is persisted per room
+    // in localStorage so nothing is lost when a session ends.
 
     if (this.signal) {
       const signal = this.signal;
@@ -624,6 +649,9 @@ export class PeerSession {
       if (this.notesChannel?.readyState === "open" && this.filesChannel?.readyState === "open") {
         this.error = null;
         this.setPhase("connected");
+        // Offer whatever doc this side already has (restored from a previous
+        // session, or typed while alone); the peer keeps the newer revision.
+        if (this.doc.rev > 0) this.sendDocFrame();
       }
       this.emit();
     });
@@ -676,6 +704,29 @@ export class PeerSession {
       return;
     }
 
+    if (frame.k === "doc") {
+      if (typeof frame.text !== "string" || typeof frame.rev !== "number") return;
+      if (!Number.isFinite(frame.rev) || frame.rev < 0) return;
+
+      const at =
+        typeof frame.at === "number" &&
+        Number.isFinite(frame.at) &&
+        Math.abs(frame.at) <= MAX_NOTE_TIMESTAMP_MS
+          ? frame.at
+          : Date.now();
+
+      // Last-writer-wins: apply only strictly newer edits. Equal revisions
+      // (both peers typed concurrently) are broken by timestamp.
+      const newer =
+        frame.rev > this.doc.rev || (frame.rev === this.doc.rev && at > this.doc.at);
+      if (!newer) return;
+
+      this.doc = { text: frame.text.slice(0, MAX_DOC_LENGTH), rev: frame.rev, at, mine: false };
+      this.persistDoc();
+      this.emit();
+      return;
+    }
+
     if (frame.k !== "note" || typeof frame.text !== "string") return;
 
     // Never trust a peer-supplied timestamp: |at| beyond what Date can
@@ -717,6 +768,65 @@ export class PeerSession {
   setTyping(on: boolean) {
     if (this.notesChannel?.readyState !== "open") return;
     this.notesChannel.send(JSON.stringify({ k: "typing", on } satisfies NoteFrame));
+  }
+
+  // -------------------------------------------------------------------- doc
+
+  private docStorageKey() {
+    return `instant-doc-${this.roomId}`;
+  }
+
+  private loadDoc(): DocState {
+    try {
+      const raw = localStorage.getItem(this.docStorageKey());
+      if (raw) {
+        const saved = JSON.parse(raw) as Partial<DocState>;
+        if (typeof saved.text === "string" && typeof saved.rev === "number") {
+          return {
+            text: saved.text.slice(0, MAX_DOC_LENGTH),
+            rev: saved.rev,
+            at: typeof saved.at === "number" ? saved.at : 0,
+            mine: true,
+          };
+        }
+      }
+    } catch {
+      // Private browsing or corrupt entry: start empty.
+    }
+    return { text: "", rev: 0, at: 0, mine: false };
+  }
+
+  private persistDoc() {
+    try {
+      const { text, rev, at } = this.doc;
+      localStorage.setItem(this.docStorageKey(), JSON.stringify({ text, rev, at }));
+    } catch {
+      // Storage full or unavailable: the in-memory copy still works.
+    }
+  }
+
+  /** Apply a local edit and sync it to the peer (debounced per keystroke). */
+  updateDoc(rawText: string) {
+    const text = rawText.slice(0, MAX_DOC_LENGTH);
+    if (text === this.doc.text) return;
+
+    this.doc = { text, rev: this.doc.rev + 1, at: Date.now(), mine: true };
+    this.persistDoc();
+    this.emit();
+
+    // Trailing debounce: one frame per pause in typing, and the frame always
+    // carries the latest full text, so dropping intermediates loses nothing.
+    if (this.docSendTimer) clearTimeout(this.docSendTimer);
+    this.docSendTimer = setTimeout(() => {
+      this.docSendTimer = null;
+      this.sendDocFrame();
+    }, 200);
+  }
+
+  private sendDocFrame() {
+    if (this.notesChannel?.readyState !== "open") return;
+    const { text, rev, at } = this.doc;
+    this.notesChannel.send(JSON.stringify({ k: "doc", text, rev, at } satisfies NoteFrame));
   }
 
   // ------------------------------------------------------------------ files
