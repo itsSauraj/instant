@@ -122,11 +122,25 @@ export function ParticipantsPanel({
   const headcount = participants.length + (self ? 1 : 0);
 
   return (
-    <aside
-      role="dialog"
-      aria-label="Participants"
-      className="panel fixed inset-y-0 right-0 z-40 flex w-80 max-w-[85vw] flex-col rounded-none border-l shadow-xl sm:inset-y-3 sm:right-3 sm:rounded-xl sm:border"
-    >
+    <>
+      {/*
+        A scrim, because this panel is anchored to the right edge -- exactly
+        where the video strip lives. Without it the panel silently covers the
+        strip's per-tile controls: clicks land on the panel and the buttons
+        underneath simply appear dead. The scrim makes the modality visible and
+        gives a click-anywhere-to-close escape, alongside Escape above.
+      */}
+      <div
+        aria-hidden
+        onClick={onClose}
+        className="fixed inset-0 z-30 bg-black/20 backdrop-blur-[1px]"
+      />
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-label="Participants"
+        className="panel fixed inset-y-0 right-0 z-40 flex w-80 max-w-[85vw] flex-col rounded-none border-l shadow-xl sm:inset-y-3 sm:right-3 sm:rounded-xl sm:border"
+      >
       <header className="flex shrink-0 items-center gap-2 border-b p-3 sm:px-4">
         <h2 className="text-sm font-semibold">Participants</h2>
         <span className="text-muted-foreground text-xs">{headcount} in session</span>
@@ -326,7 +340,8 @@ export function ParticipantsPanel({
       <p className="text-muted-foreground shrink-0 border-t p-3 text-xs sm:px-4">
         Strength is the direct link from this device to each person.
       </p>
-    </aside>
+      </aside>
+    </>
   );
 }
 

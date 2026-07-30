@@ -330,9 +330,15 @@ function RoomSession({ roomId }: { roomId: string }) {
         <TabsContent value="files" forceMount hidden={tab !== "files"} className="min-h-0">
           <FilesPanel
             transfers={session.transfers}
+            participants={session.participants}
             disabled={!connected}
+            // The engine's own provider, not the panel's default: a folder
+            // chosen in the UI has to steer the sink the engine writes through,
+            // or the picker would silently affect nothing.
+            sinkProvider={session.sinkProvider ?? null}
             onSend={session.sendFiles}
             onCancel={session.cancelTransfer}
+            onResume={session.resumeTransfer}
           />
         </TabsContent>
 
@@ -350,6 +356,12 @@ function RoomSession({ roomId }: { roomId: string }) {
             isHost={session.isHost}
             disabled={!connected}
             onPinPeer={session.pinPeer}
+            // Enforcement lives in the transport, which turns the device off on
+            // receipt; the panel only attributes the result and prompts for the
+            // ask-* actions. `seq` increments per event so a repeated mute is
+            // not de-duplicated away.
+            onModerate={session.moderate}
+            moderation={session.moderation}
             onToggleMic={session.toggleMic}
             onToggleCamera={session.toggleCamera}
             onToggleScreen={session.toggleScreenShare}
