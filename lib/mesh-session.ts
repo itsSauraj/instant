@@ -15,10 +15,12 @@ import { openTransferStore, type PartialStore, type StoredPartial } from "@/lib/
 import { pairFingerprint, type PairFingerprint } from "@/lib/verify";
 import {
   ROOM_CAPACITY,
+  isEnforced,
   isInitiator,
   sanitizeName,
   videoBudget,
   type EndReason,
+  type ModerationAction,
   type Participant,
   type PeerId,
   type ServerEvent,
@@ -125,6 +127,10 @@ export type MeshSnapshot = {
   canChooseFolder: boolean;
   /** The live-synced shared document. Survives the session via localStorage. */
   doc: DocState;
+  /** Most recent moderation event aimed at THIS client. `seq` increases on
+   *  EVERY event (even two identical actions in a row) so the UI can
+   *  de-duplicate without missing a repeat. Null until the first event. */
+  moderation: { seq: number; action: ModerationAction; byName: string } | null;
   error: string | null;
   endReason: EndReason | null;
 };
@@ -228,6 +234,10 @@ export class MeshSession {
   private endReason: EndReason | null = null;
   private error: string | null = null;
 
+  /** Latest host-moderation event aimed at this client; see MeshSnapshot. */
+  private moderation: { seq: number; action: ModerationAction; byName: string } | null = null;
+  private moderationSeq = 0;
+
   // --- transfer infrastructure (sinks, resume) -----------------------------
   /** Where received bytes land. Starts as the plain in-memory tier and is
    *  swapped for the real browser provider once `initTransferInfra` runs. */
@@ -314,6 +324,15 @@ export class MeshSession {
   /** The remote MediaStream for one peer, or null when no link is live. */
   getRemoteStream = (peerId: PeerId): MediaStream | null =>
     this.links.get(peerId)?.remoteStream ?? null;
+
+  /**
+   * The provider the engine actually writes received files through.
+   *
+   * Exposed because the destination picker must steer THIS instance. Left to
+   * construct its own, the UI would show a folder chooser that changed where
+   * nothing was written -- a control that silently does nothing.
+   */
+  getSinkProvider = (): SinkProvider => this.sinkProvider;
 
   /**
    * Live quality of the direct link to one peer: its negotiation state plus
@@ -410,6 +429,11 @@ export class MeshSession {
       remoteVideoLive ||= videoLive;
     }
 
+    // Precedence per uid: a LIVE transfer on a current link tells the freshest
+    // story; a persisted PARTIAL row (resumable, with the durable offset and
+    // any re-select note) supersedes the RETIRED failed record the same
+    // interruption left behind — otherwise the resume affordance would be
+    // invisible until the session ended.
     const transfers: MeshTransfer[] = [];
     for (const [peerId, link] of this.links) {
       const peerName = this.others.get(peerId)?.name ?? "Peer";
@@ -417,8 +441,15 @@ export class MeshSession {
         transfers.push({ ...t, key: `${link.uid}:${t.key}`, peerId, peerName });
       }
     }
+    const liveUids = new Set(
+      transfers.filter((t) => t.direction === "incoming").map((t) => t.uid),
+    );
+    const partialUids = new Set(this.partials.map((p) => p.id));
     for (const r of this.retired) {
       for (const t of r.manager.list()) {
+        if (t.direction === "incoming" && !liveUids.has(t.uid) && partialUids.has(t.uid)) {
+          continue; // superseded by the resumable partial row below
+        }
         transfers.push({ ...t, key: `${r.uid}:${t.key}`, peerId: r.peerId, peerName: r.peerName });
       }
     }
@@ -479,6 +510,7 @@ export class MeshSession {
         version: this.mediaVersion,
       },
       doc: this.doc,
+      moderation: this.moderation,
       error: this.error,
       endReason: this.endReason,
     };
@@ -787,6 +819,34 @@ export class MeshSession {
 
       case "ended": {
         this.end(event.reason);
+        break;
+      }
+
+      case "moderated": {
+        // Enforced mutes are applied IMMEDIATELY, through the exact same path
+        // as the local toggle, so the track genuinely stops and every peer
+        // sees it stop. Already-off is a no-op (the guard), never an error.
+        // The ask-* actions deliberately touch NOTHING here: a remote party
+        // must never be able to switch someone's microphone or camera ON —
+        // the media panel prompts and the user decides.
+        if (isEnforced(event.action)) {
+          if (event.action === "mute-audio" && this.micTrack) void this.toggleMic();
+          if (event.action === "mute-video") {
+            // "Turn off their camera" must stop ALL outgoing video, screen share
+            // included. Stopping only the camera would leave the host looking at
+            // the very content they just tried to stop, which is the failure
+            // that matters here -- a moderation control that visibly does
+            // nothing is worse than not having one.
+            if (this.cameraTrack) void this.toggleCamera();
+            if (this.screenTrack) void this.toggleScreenShare();
+          }
+        }
+        // `seq` must move on EVERY event, including a repeat of the same
+        // action, or the UI's de-duplication would swallow a second "mute"
+        // issued after the user unmuted.
+        this.moderationSeq += 1;
+        this.moderation = { seq: this.moderationSeq, action: event.action, byName: event.byName };
+        this.emit();
         break;
       }
 
@@ -1446,5 +1506,13 @@ export class MeshSession {
     this.pinnedByHost = peerId;
     void this.signal?.pin(peerId);
     this.emit();
+  }
+
+  /** Host only: moderate one participant's devices, or everyone else's when
+   *  `peerId` is null. The local guard only saves a pointless request — the
+   *  SERVER is what enforces host-ness (403 for anyone else). */
+  moderate(peerId: PeerId | null, action: ModerationAction) {
+    if (!this.isHost || this.phase === "ended") return;
+    void this.signal?.moderate(peerId, action);
   }
 }

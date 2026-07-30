@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { MeshSession, type LinkQuality, type MeshSnapshot } from "@/lib/mesh-session";
-import { ROOM_CAPACITY, type PeerId } from "@/lib/signal-protocol";
+import { ROOM_CAPACITY, type ModerationAction, type PeerId } from "@/lib/signal-protocol";
 import { TRANSFER_LIMITS, type SendTargets } from "@/lib/transfer-contract";
 
 /** Rendered while the session object is being constructed on mount. */
@@ -37,6 +37,7 @@ const INITIAL: MeshSnapshot = {
     version: 0,
   },
   doc: { text: "", rev: 0, at: 0, mine: false },
+  moderation: null,
   error: null,
   endReason: null,
 };
@@ -182,6 +183,13 @@ export function usePeerSession(roomId: string, displayName = "") {
   const setCapacity = useCallback((value: number) => session?.setCapacity(value), [session]);
   const removePeer = useCallback((peerId: PeerId) => session?.removePeer(peerId), [session]);
   const pinPeer = useCallback((peerId: PeerId | null) => session?.pin(peerId), [session]);
+  /** Host only: moderate one peer's devices (null = everyone else's). The
+   *  server enforces host-ness; the resulting `moderated` event lands in
+   *  `moderation` on the snapshot with a monotonically increasing `seq`. */
+  const moderate = useCallback(
+    (peerId: PeerId | null, action: ModerationAction) => session?.moderate(peerId, action),
+    [session],
+  );
 
   // An ended session has no streams. The MediaStream objects themselves live
   // for the whole session (tracks are added and removed on them), so without
@@ -234,6 +242,9 @@ export function usePeerSession(roomId: string, displayName = "") {
     discardPartial,
     chooseSaveFolder,
     clearSaveFolder,
+    // The engine's own provider, so the destination picker steers the sink that
+    // actually receives files rather than a second, inert instance.
+    sinkProvider: session?.getSinkProvider() ?? null,
     leaveSession,
     closeSession,
     endSession,
@@ -244,6 +255,7 @@ export function usePeerSession(roomId: string, displayName = "") {
     setCapacity,
     removePeer,
     pinPeer,
+    moderate,
   };
 }
 
