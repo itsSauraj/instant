@@ -149,10 +149,11 @@ export type FileFrame =
  */
 export const CHUNK_HEADER_BYTES = 4;
 
-export function frameChunk(transferId: number, chunk: ArrayBuffer): ArrayBuffer {
-  const out = new ArrayBuffer(CHUNK_HEADER_BYTES + chunk.byteLength);
+export function frameChunk(transferId: number, chunk: ArrayBuffer | Uint8Array): ArrayBuffer {
+  const view = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+  const out = new ArrayBuffer(CHUNK_HEADER_BYTES + view.byteLength);
   new DataView(out).setUint32(0, transferId, true);
-  new Uint8Array(out, CHUNK_HEADER_BYTES).set(new Uint8Array(chunk));
+  new Uint8Array(out, CHUNK_HEADER_BYTES).set(view);
   return out;
 }
 

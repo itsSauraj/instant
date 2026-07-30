@@ -180,10 +180,18 @@ export type OutgoingHandle = {
   readonly from: number;
   readonly size: number;
   /** Sends one chunk (already positioned); false means drop this recipient. */
-  deliver(bytes: ArrayBuffer): Promise<boolean>;
+  deliver(bytes: Uint8Array): Promise<boolean>;
   finish(): void;
   fail(message: string): void;
 };
+
+/**
+ * Bytes pulled from the disk per read. Slicing a large File 16 KiB at a time
+ * is pathologically slow (each `slice().arrayBuffer()` round-trips to the
+ * browser's file backend with cost that grows with the FILE, not the slice),
+ * so the send loop reads big spans and frames wire-sized chunks from memory.
+ */
+export const READ_SPAN_BYTES = 8 * 1024 * 1024;
 
 /**
  * Owns the `files` data channel: chunking, backpressure, sinks, resume and
@@ -306,7 +314,7 @@ export class FileTransferManager {
     return {
       from,
       size: file.size,
-      deliver: async (bytes: ArrayBuffer): Promise<boolean> => {
+      deliver: async (bytes: Uint8Array): Promise<boolean> => {
         if (this.disposed) return false;
         const cancelledBy = this.cancelledOutgoing.get(id);
         if (cancelledBy !== undefined) {
@@ -1332,10 +1340,12 @@ export class FileTransferManager {
 
 /**
  * Fan-out: streams ONE file to several recipients with a single pass over the
- * disk. Each chunk is read once (`file.slice().arrayBuffer()`) and handed to
- * every recipient's channel — the only per-recipient work is framing the copy
- * with that link's transfer id. Recipients may start at different offsets
- * (resume), so a chunk is only delivered to recipients it overlaps.
+ * disk. The file is read in `READ_SPAN_BYTES` spans — each span is ONE
+ * `file.slice().arrayBuffer()` — and wire-sized chunks are framed from the
+ * in-memory span for every recipient. The only per-recipient work is the
+ * 4-byte-id framing copy; the disk is never re-read per recipient.
+ * Recipients may start at different offsets (resume), so a chunk is only
+ * delivered to recipients it overlaps.
  *
  * The loop advances at the pace of the slowest recipient; each channel's own
  * 4 MiB send buffer absorbs the difference for peers that are merely uneven.
@@ -1362,29 +1372,39 @@ export async function sendFileToManagers(
 
   let offset = Math.min(...active.map((handle) => handle.from));
   while (offset < file.size && active.length > 0) {
-    const end = Math.min(offset + CHUNK_SIZE, file.size);
-    let buffer: ArrayBuffer;
+    const spanEnd = Math.min(offset + READ_SPAN_BYTES, file.size);
+    let span: Uint8Array;
     try {
-      buffer = await file.slice(offset, end).arrayBuffer();
-      if (buffer.byteLength !== end - offset) throw new Error("Short read");
+      const buffer = await file.slice(offset, spanEnd).arrayBuffer();
+      if (buffer.byteLength !== spanEnd - offset) throw new Error("Short read");
+      span = new Uint8Array(buffer);
     } catch {
       // The File object went stale (edited or removed on disk). Nothing sane
       // can be sent from here; fail every remaining copy.
-      for (const handle of active) handle.fail("Could not read the file — it may have changed on disk");
+      for (const handle of active) {
+        handle.fail("Could not read the file — it may have changed on disk");
+      }
       return;
     }
 
-    const survivors: OutgoingHandle[] = [];
-    for (const handle of active) {
-      if (handle.from >= end) {
-        survivors.push(handle); // resumes beyond this chunk; not started yet
-        continue;
+    let chunkStart = offset;
+    while (chunkStart < spanEnd && active.length > 0) {
+      const chunkEnd = Math.min(chunkStart + CHUNK_SIZE, spanEnd);
+      const survivors: OutgoingHandle[] = [];
+      for (const handle of active) {
+        if (handle.from >= chunkEnd) {
+          survivors.push(handle); // resumes beyond this chunk; not started yet
+          continue;
+        }
+        // A resumed recipient may join mid-chunk; give it only its remainder.
+        const start = Math.max(handle.from, chunkStart);
+        const part = span.subarray(start - offset, chunkEnd - offset);
+        if (await handle.deliver(part)) survivors.push(handle);
       }
-      const part = handle.from > offset ? buffer.slice(handle.from - offset) : buffer;
-      if (await handle.deliver(part)) survivors.push(handle);
+      active = survivors;
+      chunkStart = chunkEnd;
     }
-    active = survivors;
-    offset = end;
+    offset = spanEnd;
   }
 
   for (const handle of active) handle.finish();
