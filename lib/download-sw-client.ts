@@ -61,33 +61,37 @@ export function serviceWorkerDownloadsAvailable(): boolean {
 // Lazy registration
 // ---------------------------------------------------------------------------
 
-let workerPromise: Promise<ServiceWorker> | null = null;
+let registrationPromise: Promise<ServiceWorkerRegistration> | null = null;
 
 /**
  * Registers the worker on first use only -- a page that never receives a
  * large file never installs anything. Scope is `/instant-download/`, so the
  * worker cannot intercept any app request even if its fetch handler were
  * wrong: the app's pages and API routes are simply outside its reach.
+ *
+ * The REGISTRATION is memoized, never a ServiceWorker instance: the browser
+ * stops an idle worker between downloads, and each handshake must talk to
+ * whatever instance `registration.active` resolves to right now.
  */
-function ensureWorker(): Promise<ServiceWorker> {
+function ensureRegistration(): Promise<ServiceWorkerRegistration> {
   if (!serviceWorkerDownloadsAvailable()) {
     return Promise.reject(new Error("Service worker downloads are not available here"));
   }
-  if (!workerPromise) {
-    workerPromise = register().catch((error) => {
+  if (!registrationPromise) {
+    registrationPromise = register().catch((error) => {
       // Let a later download retry registration instead of caching failure.
-      workerPromise = null;
+      registrationPromise = null;
       throw error;
     });
   }
-  return workerPromise;
+  return registrationPromise;
 }
 
-async function register(): Promise<ServiceWorker> {
+async function register(): Promise<ServiceWorkerRegistration> {
   const registration = await navigator.serviceWorker.register(SW_URL, { scope: SW_SCOPE });
   const worker = registration.active ?? registration.waiting ?? registration.installing;
   if (!worker) throw new Error("The download service worker failed to install");
-  if (worker.state === "activated") return worker;
+  if (worker.state === "activated") return registration;
 
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -109,7 +113,7 @@ async function register(): Promise<ServiceWorker> {
     };
     worker.addEventListener("statechange", onState);
   });
-  return worker;
+  return registration;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,13 +145,15 @@ function trackActive(delta: number) {
 // One download
 // ---------------------------------------------------------------------------
 
+/** How long the worker gets to acknowledge a handshake before a retry. */
+const READY_TIMEOUT_MS = 2_500;
+
 export async function openServiceWorkerDownload(file: {
   name: string;
   mime: string;
   expectedBytes: number;
 }): Promise<ServiceWorkerDownloadHandle> {
-  const worker = await ensureWorker();
-  keepAliveWorker = worker;
+  let registration = await ensureRegistration();
   const token = crypto.randomUUID();
 
   let failure: Error | null = null;
@@ -203,23 +209,67 @@ export async function openServiceWorkerDownload(file: {
   // Hand the worker the stream. Transferring a ReadableStream is not
   // universally supported (Safari), so fall back to pumping chunks through
   // the MessagePort with pull-based backpressure when the transfer throws.
-  let mode: "transfer" | "pump" = "transfer";
-  let port: MessagePort;
+  //
+  // The handshake must be ACKNOWLEDGED ("ready") before the iframe navigates:
+  // an idle worker the browser stopped between downloads holds no state, and
+  // a fire-and-forget message can be lost with it. On silence, re-resolve the
+  // registration (postMessage to its active worker restarts it) and retry
+  // with a fresh stream and channel -- a transferred stream is detached even
+  // when its message went nowhere.
   const meta = { type: "download", token, name: file.name, size: file.expectedBytes, mime: file.mime };
-  try {
-    const channel = new MessageChannel();
-    const stream = makeStream();
-    worker.postMessage({ ...meta, stream }, [channel.port2, stream as unknown as Transferable]);
-    port = channel.port1;
-  } catch {
-    mode = "pump";
-    controller = null;
-    // Fresh channel: do not reuse ports that a failed postMessage may have
-    // left in an indeterminate state.
-    const channel = new MessageChannel();
-    worker.postMessage(meta, [channel.port2]);
-    port = channel.port1;
+
+  const handshakeOnce = async (): Promise<{ port: MessagePort; mode: "transfer" | "pump" } | null> => {
+    const active = registration.active;
+    if (!active) return null;
+    keepAliveWorker = active;
+    let attemptMode: "transfer" | "pump" = "transfer";
+    let attemptPort: MessagePort;
+    try {
+      const channel = new MessageChannel();
+      const stream = makeStream();
+      active.postMessage({ ...meta, stream }, [channel.port2, stream as unknown as Transferable]);
+      attemptPort = channel.port1;
+    } catch {
+      attemptMode = "pump";
+      controller = null;
+      // Fresh channel: do not reuse ports that a failed postMessage may have
+      // left in an indeterminate state.
+      const channel = new MessageChannel();
+      active.postMessage(meta, [channel.port2]);
+      attemptPort = channel.port1;
+    }
+    const acknowledged = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), READY_TIMEOUT_MS);
+      attemptPort.onmessage = (event: MessageEvent) => {
+        if (((event.data ?? {}) as { type?: string }).type === "ready") {
+          clearTimeout(timer);
+          resolve(true);
+        }
+      };
+    });
+    if (!acknowledged) {
+      try {
+        attemptPort.close();
+      } catch {
+        // Already closed.
+      }
+      return null;
+    }
+    return { port: attemptPort, mode: attemptMode };
+  };
+
+  let handshake: { port: MessagePort; mode: "transfer" | "pump" } | null = null;
+  for (let attempt = 0; attempt < 3 && !handshake; attempt += 1) {
+    handshake = await handshakeOnce();
+    if (!handshake) {
+      const fresh = await navigator.serviceWorker.getRegistration(SW_SCOPE).catch(() => undefined);
+      if (fresh) registration = fresh;
+    }
   }
+  if (!handshake) {
+    throw new Error("The download service worker did not acknowledge the handshake");
+  }
+  const { port, mode } = handshake;
 
   const flush = () => {
     while (credits > 0 && queue.length > 0) {

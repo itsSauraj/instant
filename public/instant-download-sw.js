@@ -62,6 +62,14 @@ self.addEventListener("message", function (event) {
 
   downloads.set(data.token, entry);
 
+  // Acknowledge: the page only navigates its iframe once this instance has
+  // the token, so a handshake lost to a stopped worker is retried, never 404s.
+  try {
+    port.postMessage({ type: "ready" });
+  } catch (error) {
+    /* page gone already */
+  }
+
   // Belt and braces: a token whose iframe navigation never arrived (page
   // crashed between postMessage and iframe insert) must not pin the stream
   // in memory forever.

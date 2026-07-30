@@ -42,6 +42,8 @@ type WritableHandle = {
 type FileHandle = {
   readonly name: string;
   createWritable(options?: { keepExistingData?: boolean }): Promise<WritableHandle>;
+  /** Reads the file as it exists ON DISK, which a resume must check against. */
+  getFile(): Promise<File>;
 };
 
 type DirectoryHandle = {
@@ -414,11 +416,29 @@ export class BrowserSinkProvider implements SinkProvider {
     }
 
     const handle = await dir.getFileHandle(name, { create: true });
-    const writable = await handle.createWritable({ keepExistingData: resumeFrom > 0 });
-    if (resumeFrom > 0) await writable.seek(resumeFrom);
+
+    // Never trust the requested offset. Writes through a FileSystemWritable go
+    // to a swap file that is DISCARDED if the page dies without close(), so the
+    // file on disk can be shorter than the caller believes -- and seeking past
+    // EOF silently zero-fills the gap. Since `written` is the engine's only
+    // source of truth, that would hand back a corrupt file that looks complete.
+    // Read the real size first and resume from whichever is smaller.
+    let start = resumeFrom;
+    if (resumeFrom > 0) {
+      const onDisk = await handle
+        .getFile()
+        .then((existing: File) => existing.size)
+        .catch(() => 0);
+      if (onDisk < resumeFrom) start = onDisk;
+    }
+
+    const writable = await handle.createWritable({ keepExistingData: start > 0 });
+    if (start > 0) await writable.seek(start);
 
     this.assignedNames.set(file.transferId, name);
-    return new FileSystemSink(dir, name, writable, resumeFrom);
+    // Reporting the ACTUAL offset lets the engine notice `written !== resumeFrom`
+    // and re-request from there, which is exactly the check it already performs.
+    return new FileSystemSink(dir, name, writable, start);
   }
 
   /**
