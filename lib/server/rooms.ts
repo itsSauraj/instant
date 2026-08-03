@@ -191,6 +191,25 @@ function broadcastRoster(room: Room) {
   broadcast(room, { t: "roster", roster: rosterOf(room), capacity: room.capacity });
 }
 
+/**
+ * Tells every seated member who the host now is. The per-recipient
+ * `becameHost` flag is the whole point: the roster alone lets clients *infer*
+ * the change, but the new host must be *told*, or they never learn they now
+ * hold the admit/close/moderate keys. `byChoice` distinguishes an explicit
+ * handover from automatic succession so the UI can phrase it honestly.
+ */
+function announceHostChange(room: Room, next: Member, byChoice: boolean) {
+  for (const member of room.members.values()) {
+    safeEmit(member.stream, {
+      t: "host-changed",
+      peerId: next.id,
+      name: next.name,
+      becameHost: member.id === next.id,
+      byChoice,
+    });
+  }
+}
+
 function clearMemberTimer(member: Member) {
   if (member.awayTimer) clearTimeout(member.awayTimer);
   member.awayTimer = undefined;
@@ -324,6 +343,9 @@ function releaseSeat(room: Room, member: Member, reason: LeaveReason) {
     // compute, so no two clients disagree about who inherited the room.
     const next = [...room.members.values()].sort(seatingOrder)[0];
     room.hostId = next.id;
+    // Nobody chose this successor, so `byChoice: false`; the promoted peer's
+    // copy carries `becameHost: true` so they are told, not left to notice.
+    announceHostChange(room, next, false);
     // The new host inherits the knock queue; replay it so nobody waiting at
     // the door is stranded by the succession.
     for (const knock of room.knocks.values()) {
@@ -728,6 +750,53 @@ export function removePeer(
 
   safeEmit(target.stream, { t: "ended", reason: "removed" });
   releaseSeat(auth.room, target, "removed");
+  return { ok: true };
+}
+
+/**
+ * Host only: hands the room to another seated participant while the caller
+ * stays in the call. This is the "Leave, but choose my successor" path; a host
+ * who simply leaves still gets automatic succession as the fallback.
+ *
+ * An AWAY target is refused (`invalid`): their seat is merely being held and
+ * their stream is dead, so they could neither be told they are host nor admit
+ * or close anyone until they happen to resume. Handing the only set of keys to
+ * someone who is not at the door is strictly worse than the host keeping them.
+ *
+ * The founder-uid admin identity (`hostUid`) moves WITH the role. An explicit
+ * handover must be durable: if the old host's uid stayed the admin identity,
+ * their next tokenless rejoin would silently seize the role back from the very
+ * person they chose -- the opposite of what "transfer" means. (Automatic
+ * succession deliberately does NOT move it, so a returning founder reclaims a
+ * room they never chose to give up.)
+ */
+export function transferHost(
+  roomId: string,
+  peerId: string,
+  secret: string,
+  targetId: PeerId,
+): ActionResult {
+  const auth = authenticateHost(roomId, peerId, secret);
+  if (!auth.ok) return auth;
+
+  // Transferring to yourself is a client bug, not a no-op to paper over.
+  if (targetId === peerId) return { ok: false, error: "invalid" };
+
+  const target = auth.room.members.get(targetId);
+  if (!target) return { ok: false, error: "unknown-peer" };
+  if (target.away) return { ok: false, error: "invalid" };
+
+  auth.room.hostId = target.id;
+  auth.room.hostUid = target.uid;
+
+  announceHostChange(auth.room, target, true);
+  // The new host inherits the knock queue, exactly as in succession; anyone
+  // waiting at the door was only ever announced to the old host.
+  for (const knock of auth.room.knocks.values()) {
+    safeEmit(target.stream, { t: "knock", knockId: knock.id, name: knock.name });
+  }
+  // Roster last, so `isHost` is authoritative once the dust settles.
+  broadcastRoster(auth.room);
   return { ok: true };
 }
 

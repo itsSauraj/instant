@@ -188,6 +188,12 @@ export class SignalClient {
     await this.post({ t: "remove", peerId });
   }
 
+  /** Host only: hand the room to a seated participant and stay in the call.
+   *  Distinct from `leave`, which triggers automatic succession instead. */
+  async transferHost(peerId: PeerId) {
+    await this.post({ t: "transfer-host", peerId });
+  }
+
   /** Host only: force a pin for everyone. Null clears it. */
   async pin(peerId: PeerId | null) {
     await this.post({ t: "pin", peerId });

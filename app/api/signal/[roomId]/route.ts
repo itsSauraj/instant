@@ -21,6 +21,7 @@ import {
   setCapacity,
   setPin,
   streamAborted,
+  transferHost,
   type ActionError,
   type ActionResult,
   type Connection,
@@ -63,15 +64,29 @@ const ERROR_STATUS: Record<ActionError, number> = {
   unauthorized: 401,
   forbidden: 403,
   "unknown-room": 410,
-  "not-member": 410,
+  /**
+   * 401, not 410, and deliberately identical to a wrong secret. Answering
+   * differently for "that peer id is not in this room" and "that secret is
+   * wrong" tells a caller which peer ids exist -- an enumeration oracle for no
+   * benefit. The caller is unauthenticated either way, so it says so either way.
+   * (`unknown-room` stays 410: the room id is in the URL the caller already
+   * holds, so it reveals nothing they did not supply.)
+   */
+  "not-member": 401,
   "unknown-peer": 410,
   "unknown-knock": 410,
   "rate-limited": 429,
 };
 
 function actionResponse(result: ActionResult) {
-  if (!result.ok) return json({ error: result.error }, ERROR_STATUS[result.error]);
-  return json({ ok: true }, 200);
+  if (result.ok) return json({ ok: true }, 200);
+
+  // Collapse the body too, not just the status. Returning `not-member` for an
+  // unseated peer id and `unauthorized` for a bad secret closed the enumeration
+  // oracle at the status level but left it wide open to anyone reading the JSON.
+  // Both mean the same thing to the caller: you are not an authenticated member.
+  const error = result.error === "not-member" ? "unauthorized" : result.error;
+  return json({ error }, ERROR_STATUS[result.error]);
 }
 
 function isSignalPayload(data: unknown): data is SignalPayload {
@@ -210,6 +225,12 @@ export async function POST(request: Request, context: RouteContext) {
         return json({ error: "invalid-message" }, 400);
       }
       return actionResponse(removePeer(roomId, peerId, secret, message.peerId));
+    }
+    case "transfer-host": {
+      if (typeof message.peerId !== "string" || !message.peerId) {
+        return json({ error: "invalid-message" }, 400);
+      }
+      return actionResponse(transferHost(roomId, peerId, secret, message.peerId));
     }
     case "pin": {
       if (message.peerId !== null && (typeof message.peerId !== "string" || !message.peerId)) {

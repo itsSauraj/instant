@@ -114,6 +114,14 @@ export type ServerEvent =
   /** The host pinned a participant for everyone. Null clears it. */
   | { t: "pin"; peerId: PeerId | null }
   /**
+   * The room's host changed. Sent to everyone so each client can update its
+   * controls; `isHost` on the roster is the authority, this is the event that
+   * lets the new host be *told* rather than having to notice.
+   *
+   * `becameHost` is true only in the copy sent to the new host.
+   */
+  | { t: "host-changed"; peerId: PeerId; name: string; becameHost: boolean; byChoice: boolean }
+  /**
    * The host moderated this client's devices. `isEnforced(action)` actions are
    * applied immediately; the others are prompts the user may decline.
    */
@@ -135,6 +143,15 @@ export type ClientMessage =
   | { t: "capacity"; value: number }
   /** Host only: eject a participant. */
   | { t: "remove"; peerId: PeerId }
+  /**
+   * Host only: hand the room to someone else and stay in it.
+   *
+   * Distinct from leaving: a host who leaves triggers automatic succession, but
+   * that gives them no say in who takes over. This lets them choose, which is
+   * the point when the host is the only one who can close the room or admit
+   * anyone.
+   */
+  | { t: "transfer-host"; peerId: PeerId }
   /** Host only: force a pin for everyone. Null clears it. */
   | { t: "pin"; peerId: PeerId | null }
   /**
