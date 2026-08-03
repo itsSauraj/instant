@@ -42,7 +42,7 @@ export function ScanInvite({
   /**
    * Runs just before the scanner navigates to the room. A scan skips the join
    * form's submit path, so the host page uses this to persist the typed
-   * display name (via lib/identity) — the name reaches the room through
+   * display name (via lib/identity) - the name reaches the room through
    * localStorage, never through the URL, which is shared and scanned.
    */
   onBeforeNavigate?: () => void;

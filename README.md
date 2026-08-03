@@ -16,7 +16,7 @@ npm run dev
 Open the printed URL (default `http://localhost:3000`), click
 **Create a private session**, and open the invite link shown in the lobby in a
 second browser. For a quick smoke test, two tabs in the same browser profile
-work fine — each tab joins as an independent peer.
+work fine - each tab joins as an independent peer.
 
 Requires Node.js and a current Chromium-, Firefox- or WebKit-based browser.
 No configuration is needed; see [Configuration](#configuration) for the one
@@ -26,8 +26,8 @@ optional knob (a TURN relay).
 
 | Feature | Transport |
 | --- | --- |
-| Notes, rendered as GitHub-flavored markdown with syntax highlighting (raw HTML is never rendered) | `notes` data channel — ordered, reliable, JSON frames |
-| File transfer with progress, cancellation and image previews | `files` data channel — ordered, reliable, 16 KiB binary chunks with a 4-byte transfer-id header |
+| Notes, rendered as GitHub-flavored markdown with syntax highlighting (raw HTML is never rendered) | `notes` data channel - ordered, reliable, JSON frames |
+| File transfer with progress, cancellation and image previews | `files` data channel - ordered, reliable, 16 KiB binary chunks with a 4-byte transfer-id header |
 | Microphone, camera and screen share | RTP media tracks on the same peer connection (screen share takes over the outgoing video sender while it is on) |
 
 Both data channels and all media tracks ride one `RTCPeerConnection`, so
@@ -65,13 +65,13 @@ protocol, state machines and extension points.
 ## Host authority
 
 The first person into a room is the **host**. Only the host may deliberately
-end the session — the guest's "End session" control stays locked until the
+end the session - the guest's "End session" control stays locked until the
 host grants it from the host panel shown above the room tabs (and the host can
 revoke the grant again). The server enforces this: a `bye` from an
 unauthorised guest is refused with `403` and the room is untouched.
 
 This governs only the *deliberate* end action. Either peer closing its tab or
-losing its connection still destroys the session for both, by design — a
+losing its connection still destroys the session for both, by design - a
 two-party session has nothing meaningful to preserve once one party is gone.
 
 ## Security model
@@ -80,7 +80,7 @@ What the code guarantees, as implemented in `lib/server/rooms.ts` and
 `lib/ids.ts`:
 
 - Exactly two peers per session. The room **seals** when the second peer
-  joins, and a vacated slot is never refilled — a third party cannot take
+  joins, and a vacated slot is never refilled - a third party cannot take
   over a seat that opens up mid-session.
 - Either peer leaving (deliberately or by dropping) destroys the session for
   both sides. There is no half-open state to hijack.
@@ -88,7 +88,7 @@ What the code guarantees, as implemented in `lib/server/rooms.ts` and
   link cannot be reopened for a fresh session (15-minute tombstone; the id
   space makes accidental reuse implausible anyway).
 - Room ids are 80 bits from a CSPRNG (`crypto.getRandomValues`, 16 characters
-  of a 32-character alphabet) — not guessable in practice.
+  of a 32-character alphabet) - not guessable in practice.
 - WebRTC encrypts everything in transit with DTLS-SRTP. This holds even when
   a TURN relay carries the traffic; the relay sees only ciphertext.
 - Nothing is persisted server-side. Rooms live in process memory for the
@@ -114,7 +114,7 @@ Honest limitations:
 ## Configuration
 
 None required. The only environment variables the app reads are the three
-optional TURN settings in `lib/peer-session.ts` — see
+optional TURN settings in `lib/peer-session.ts` - see
 [.env.example](.env.example). A TURN server relays encrypted traffic between
 peers behind symmetric NAT, where no direct path can be established. Note
 that `NEXT_PUBLIC_*` values are compiled into the client bundle: a long-lived
@@ -142,7 +142,7 @@ will route the two peers of one room to different processes, and the
 guarantees above silently fail. `docs/PLAN.md` mentions Vercel as a target;
 to be straight about it: the default in-memory registry only holds on a
 single instance. Deploying to a multi-instance or serverless platform means
-moving the room registry to a shared store (e.g. Redis) — `lib/server/rooms.ts`
+moving the room registry to a shared store (e.g. Redis) - `lib/server/rooms.ts`
 is the single file that would change, plus a pub/sub path to replace the
 in-process `emit` callbacks.
 
@@ -169,7 +169,7 @@ the key states to `artifacts/screenshots/`.
 | --- | --- |
 | `app/page.tsx`, `components/home/home-hero.tsx` | Landing page; create/join a session |
 | `app/room/[id]/page.tsx`, `components/room/room-client.tsx` | The room UI: tabs, status, overlays |
-| `app/api/signal/[roomId]/route.ts` | The entire backend — SSE join stream plus the signalling POST |
+| `app/api/signal/[roomId]/route.ts` | The entire backend - SSE join stream plus the signalling POST |
 | `lib/server/rooms.ts` | In-memory room registry: two-peer seal, tombstones, TTLs, host permission |
 | `lib/signal-protocol.ts` | Wire types and limits shared by server and client |
 | `lib/signal-client.ts` | Browser side of signalling: fetch-based SSE reader and POSTs |

@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 /**
  * The "what should people call you" field, shared by the create and join
  * flows. It persists on every keystroke so that *any* way of leaving the home
- * page — the create button, the join form, or a successful QR scan — carries
+ * page - the create button, the join form, or a successful QR scan - carries
  * the latest name into the room without the caller having to remember to
  * flush it.
  */

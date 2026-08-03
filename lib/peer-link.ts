@@ -85,7 +85,7 @@ const ICE_GRACE_MS = 9000;
 /**
  * How long to wait, after a data channel closes, for an authoritative reason
  * (`peer-left`, `peer-away`, `ended`) to arrive over signalling. When one
- * does, the mesh destroys this link and the timer dies unfired — so a
+ * does, the mesh destroys this link and the timer dies unfired - so a
  * deliberate departure is never misreported as a connection drop.
  */
 const CLOSE_REASON_GRACE_MS = 1500;
@@ -110,7 +110,7 @@ const MAX_NEGOTIATION_ATTEMPTS = 3;
 function iceServers(): RTCIceServer[] {
   const servers: RTCIceServer[] = [{ urls: STUN_SERVERS }];
 
-  // Optional relay for peers behind symmetric NAT. Absent by default — the app
+  // Optional relay for peers behind symmetric NAT. Absent by default - the app
   // has no backend dependency unless you choose to add one.
   const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
   if (turnUrl) {
@@ -159,7 +159,7 @@ export class PeerLink {
   /**
    * Candidates received before a remote description existed to attach them
    * to. Signalling payloads are independent HTTP requests with no ordering
-   * guarantee, so a candidate can outrun the description it belongs to —
+   * guarantee, so a candidate can outrun the description it belongs to -
    * common on mobile, where the SDP is larger and the uplink slower. Adding
    * one early throws "the remote description is null", so hold it. This
    * buffer is per link: every pair negotiates independently.
@@ -193,7 +193,7 @@ export class PeerLink {
       // so it always has something to offer). The non-initiator holds its own
       // additions back until that first offer has been applied: per spec the
       // browser re-fires negotiationneeded when the connection returns to
-      // stable with un-negotiated changes, so nothing is lost — and the pair's
+      // stable with un-negotiated changes, so nothing is lost - and the pair's
       // setup never *starts* with two offers in flight.
       if (!this.initiator && !this.seenRemoteDescription) return;
       try {
@@ -257,7 +257,7 @@ export class PeerLink {
       if (state !== "disconnected") return;
 
       // A brief blip (Wi-Fi handover) is worth one restart attempt; a
-      // sustained outage means this pair is done — but only this pair.
+      // sustained outage means this pair is done - but only this pair.
       // Exactly one side restarts, the impolite one, so the restart offer
       // cannot glare with a symmetric restart from the other end.
       if (!this.iceRestarted && !this.polite) {
@@ -395,7 +395,7 @@ export class PeerLink {
 
   private attachChannel(channel: RTCDataChannel) {
     // A non-conforming peer can announce a second channel with a label we have
-    // already bound. Replacing the live one would strand its listeners — and
+    // already bound. Replacing the live one would strand its listeners - and
     // for files, orphan a FileTransferManager whose object URLs never get
     // revoked. Keep the first, refuse the duplicate.
     if (
@@ -558,7 +558,7 @@ export class PeerLink {
   /**
    * Caps the outgoing camera encoding to the mesh-wide budget. Screen share
    * is exempt on purpose: it is usually the point of the call, mostly static,
-   * and compresses far better than a camera feed — so when the slot carries a
+   * and compresses far better than a camera feed - so when the slot carries a
    * screen track the caps are *cleared*, including any left over from the
    * camera that occupied this sender a moment ago.
    */
@@ -566,7 +566,7 @@ export class PeerLink {
     if (this.destroyed || !this.videoSender) return;
     const sender = this.videoSender;
 
-    // setParameters demands the object last returned by getParameters —
+    // setParameters demands the object last returned by getParameters -
     // building encodings from scratch throws InvalidModificationError.
     const parameters = sender.getParameters();
     if (!parameters.encodings || parameters.encodings.length === 0) {
@@ -708,7 +708,7 @@ export class PeerLink {
 
   /**
    * Total, idempotent teardown of this link only. Never touches shared local
-   * tracks — the mesh owns those; this link merely borrowed them.
+   * tracks - the mesh owns those; this link merely borrowed them.
    *
    * @param failTransfersReason marks still-running transfers failed. Pass
    *   `null` when they were already resolved (e.g. session end handles it).

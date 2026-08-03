@@ -1,7 +1,7 @@
 # Architecture
 
 This document is for someone modifying the code. It describes the system as
-implemented — file references point at the single source of truth for each
+implemented - file references point at the single source of truth for each
 part. For a high-level overview, start with the [README](../README.md).
 
 Contents:
@@ -20,19 +20,19 @@ plus `lib/server/rooms.ts`. Client: `lib/signal-client.ts`.
 
 The entire backend is one route, `/api/signal/[roomId]`:
 
-- **`GET` — the GET itself is the join.** There is no separate join call: a
+- **`GET` - the GET itself is the join.** There is no separate join call: a
   successful `GET` enters the room and returns a `text/event-stream` (SSE)
   response that stays open for the life of the session. The stream aborting
-  (tab closed, network gone) *is* the leave signal — the route's
+  (tab closed, network gone) *is* the leave signal - the route's
   `request.signal` abort handler and the stream's `cancel()` both call
   `leaveRoom`, which destroys the room.
-- **`POST` — one message per request**, authenticated with two headers issued
+- **`POST` - one message per request**, authenticated with two headers issued
   in the `welcome` event: `x-peer-id` and `x-peer-secret`. The client never
   stores these anywhere except the in-memory `SignalClient`.
 
 The client deliberately uses `fetch` with a manual SSE parser instead of
 `EventSource`: it needs the HTTP status code on failure, and it must *not*
-get `EventSource`'s automatic reconnect — a dropped stream means the session
+get `EventSource`'s automatic reconnect - a dropped stream means the session
 is over, and silently rejoining would re-open a room that was just torn down.
 
 ### Server -> client events (SSE `data:` frames, JSON)
@@ -40,11 +40,11 @@ is over, and silently rejoining would re-open a room that was just torn down.
 | Event | Payload | Meaning |
 | --- | --- | --- |
 | `welcome` | `peerId`, `secret`, `role` (`initiator` \| `responder`), `peerPresent`, `isHost`, `guestMayEnd` | You are in. First occupant is `initiator` and host; second is `responder`. |
-| `peer-joined` | — | The second occupant arrived; the room is now sealed. Sent only to the first occupant. |
+| `peer-joined` | - | The second occupant arrived; the room is now sealed. Sent only to the first occupant. |
 | `peer-left` | `reason: EndReason` | Terminal. Also used to refuse entry: a rejected `GET` still returns 200 and delivers `peer-left` with reason `room-full` or `session-over` before closing the stream. |
 | `signal` | `data: SignalPayload` | A relayed WebRTC description or ICE candidate from the other peer. |
 | `permission` | `guestMayEnd: boolean` | The host toggled whether the guest may end the session. Sent to the guest. |
-| `ping` | — | Keep-alive every 20 s so proxies do not drop the idle stream. Ignored by the client. |
+| `ping` | - | Keep-alive every 20 s so proxies do not drop the idle stream. Ignored by the client. |
 
 `EndReason` values (`lib/signal-protocol.ts`): `peer-left`, `peer-ended`,
 `room-full`, `session-over`, `room-closed`, `expired`, `transport-error`,
@@ -55,11 +55,11 @@ is over, and silently rejoining would re-open a room that was just torn down.
 | Message | Payload | Meaning |
 | --- | --- | --- |
 | `signal` | `data: SignalPayload` | Relay one SDP description or ICE candidate to the other peer, verbatim. |
-| `bye` | — | Deliberate hang-up. Authorised: the host always may; the guest only if `guestMayEnd` is set. |
+| `bye` | - | Deliberate hang-up. Authorised: the host always may; the guest only if `guestMayEnd` is set. |
 | `permission` | `allow: boolean` | Host only: grant or revoke the guest's right to end the session. |
 
 `SignalPayload` is either `{ kind: "description", description }` or
-`{ kind: "candidate", candidate }` (candidate may be `null` —
+`{ kind: "candidate", candidate }` (candidate may be `null` -
 end-of-candidates).
 
 ### HTTP status codes
@@ -69,7 +69,7 @@ end-of-candidates).
 | Status | When |
 | --- | --- |
 | 400 | Room id fails `isValidRoomId` (not 16 chars of the Crockford-style alphabet). |
-| 200 | Everything else — including refusals, which arrive in-stream as `peer-left`. |
+| 200 | Everything else - including refusals, which arrive in-stream as `peer-left`. |
 
 `POST`:
 
@@ -80,7 +80,7 @@ end-of-candidates).
 | 403 | `bye` from a guest who has not been granted `guestMayEnd`, or `permission` from a non-host. The room is untouched. |
 | 410 | The room no longer exists (`unknown-room`). |
 | 413 | Body exceeds `SIGNAL_LIMITS.maxMessageBytes` (96 KiB). |
-| 429 | The room exceeded its relay budget (`maxMessagesPerRoom`, 400) — the room is destroyed. |
+| 429 | The room exceeded its relay budget (`maxMessagesPerRoom`, 400) - the room is destroyed. |
 | 200 | Accepted. Relays additionally report `delivered: false` when no other peer is present yet. |
 
 ## Server room lifecycle
@@ -107,7 +107,7 @@ rooms): `registry` (id -> Room) and `spent` (id -> tombstone expiry).
 Key rules, each tied to an invariant:
 
 - **Sealing.** The moment the second occupant joins, `sealed` is set and the
-  lobby timer is cleared. A sealed room rejects *every* further join —
+  lobby timer is cleared. A sealed room rejects *every* further join -
   including a peer trying to reclaim a slot it just vacated. A vacated slot
   is never refilled; reconnecting means a brand-new room.
 - **Symmetric teardown.** `destroyRoom` deletes the registry entry first (so
@@ -165,24 +165,24 @@ Transitions are driven by:
 - `peer-joined`: the initiator creates both data channels, which fires
   `negotiationneeded` and kicks off the offer/answer exchange.
 - channel `open`: once *both* channels are open, phase becomes `connected`.
-- Anything terminal — `peer-left`, channel `close`, ICE failure, transport
-  error, local `end()` — lands in `ended`.
+- Anything terminal - `peer-left`, channel `close`, ICE failure, transport
+  error, local `end()` - lands in `ended`.
 
 **`end()` is a one-way trapdoor.** It sets `phase = "ended"` directly and
 `setPhase` refuses any transition out of `ended`. This matters because the
 teardown races a swarm of late async callbacks (ICE state changes, channel
-events, a `getUserMedia` promise resolving after the fact) — none of them may
+events, a `getUserMedia` promise resolving after the fact) - none of them may
 resurrect a dead session. `end()` also tears down *everything*: signalling
 stream (sending `bye` first for a deliberate hang-up, so the peer learns it
 was intentional rather than a disconnect), both channels, all local and
 remote tracks, all transfers (failing the active ones and revoking every
 received object URL), and the notes transcript. A surviving peer keeps
-nothing — which is exactly what the server's symmetric teardown assumes.
+nothing - which is exactly what the server's symmetric teardown assumes.
 
 ### Perfect negotiation
 
 Renegotiation is not an edge case here: toggling the mic, camera or screen
-share calls `addTrack`/`removeTrack`, which fires `negotiationneeded` — from
+share calls `addTrack`/`removeTrack`, which fires `negotiationneeded` - from
 *either* side, at any time. Two peers can therefore both create offers
 simultaneously (offer collision), and without a tie-breaker both sides would
 error out in `have-local-offer`.
@@ -217,7 +217,7 @@ in `lib/peer-session.ts`.
 
 Both channels are created by the initiator, `ordered: true` and reliable
 (the defaults): notes must arrive in order, and a missing file chunk is
-unrecoverable. A channel with any other label is closed on arrival —
+unrecoverable. A channel with any other label is closed on arrival -
 an out-of-spec peer is refused rather than guessed at.
 
 ### `notes` channel
@@ -251,7 +251,7 @@ Control frames (`FileFrame`):
 
 Binary chunks: each `ArrayBuffer` message is the little-endian **uint32
 transfer id (4 bytes, `CHUNK_HEADER_BYTES`) followed by up to 16 KiB of file
-data** (`CHUNK_SIZE` — the largest chunk every major SCTP stack accepts
+data** (`CHUNK_SIZE` - the largest chunk every major SCTP stack accepts
 without fuss). The id prefix lets several files stream over one channel
 without interleaving corruption. Ids are namespaced per direction
 (`out:1` vs `in:1`) because both peers number their own sends from 1.
@@ -275,13 +275,13 @@ tab-stability limits):
 | Per-file size | `MAX_RECEIVE_BYTES`, 1 GiB | Offer declined with a `cancel`. |
 | Concurrent incoming transfers | `MAX_ACTIVE_INCOMING_TRANSFERS`, 4 | Offer declined. A well-behaved sender streams one at a time; fanning out across many ids is how a hostile peer would dodge per-transfer caps. |
 | Aggregate session memory | `MAX_SESSION_RECEIVE_BYTES`, 2 GiB | Offer declined when `inboundHeldBytes` (buffered chunks plus completed Blobs not yet disposed) plus the unreceived remainder of active transfers plus the new offer would exceed it. |
-| Transfer-id reuse | — | Offer declined; accepting would orphan the previous record and leak its object URL. |
-| More bytes than declared | — | Transfer failed, buffers released, `cancel` sent. |
-| Peer-supplied file name | — | Reduced to a basename and capped at 180 chars (`sanitizeName`). |
+| Transfer-id reuse | - | Offer declined; accepting would orphan the previous record and leak its object URL. |
+| More bytes than declared | - | Transfer failed, buffers released, `cancel` sent. |
+| Peer-supplied file name | - | Reduced to a basename and capped at 180 chars (`sanitizeName`). |
 
 Completed files become a `Blob` plus an object URL for the save link and
 image previews; `dispose()` (called from `end()`) revokes every URL and
-clears the buffers — without it a session would leak its whole inbox.
+clears the buffers - without it a session would leak its whole inbox.
 
 ## How React binds to the session
 
@@ -304,7 +304,7 @@ reference. Mutation happens on private fields; nothing hands React a live
 object that changes underneath it.
 
 **High-frequency updates are coalesced.** A file transfer updates progress on
-every 16 KiB chunk — easily thousands of times per second. `emitSoon()`
+every 16 KiB chunk - easily thousands of times per second. `emitSoon()`
 batches those into at most one snapshot per 50 ms (~20 fps), which is the
 `onChange` callback the `FileTransferManager` gets. State transitions that
 must be visible immediately (phase changes, notes, media toggles) use the
@@ -322,14 +322,14 @@ on every track change) moves.
 
 Follow the pattern of `notes`/`files`; the touch points are:
 
-1. `lib/peer-protocol.ts` — add the label to `CHANNEL` and define the frame
+1. `lib/peer-protocol.ts` - add the label to `CHANNEL` and define the frame
    types and any limits.
-2. `lib/peer-session.ts` — create the channel in `openDataChannels()`
+2. `lib/peer-session.ts` - create the channel in `openDataChannels()`
    (initiator side only; the responder receives it via `ondatachannel`),
    route it in `attachChannel()`, and decide whether `connected` should wait
    for it (today the phase flips when notes *and* files are open). Add its
    state to `build()` and its teardown to `end()`.
-3. `hooks/use-peer-session.ts` — expose the new state/actions from the hook.
+3. `hooks/use-peer-session.ts` - expose the new state/actions from the hook.
 4. A panel component under `components/room/` wired into
    `room-client.tsx`.
 
@@ -341,7 +341,7 @@ If the channel carries unbounded or hostile input, copy the `files` channel's
 defensive posture: validate every frame, cap what you hold in memory, and
 attribute cancellations correctly.
 
-### More than two peers — a deliberate non-goal
+### More than two peers - a deliberate non-goal
 
 Almost every guarantee in this codebase is *derived from* the two-party
 assumption, so "support N peers" is a redesign, not a patch:
@@ -349,7 +349,7 @@ assumption, so "support N peers" is a redesign, not a patch:
 - The room seals at two and never refills; the security story ("the invite
   link admits exactly one other person, then burns") stops making sense with
   open seats.
-- Perfect negotiation is pairwise — polite/impolite only tie-breaks between
+- Perfect negotiation is pairwise - polite/impolite only tie-breaks between
   two agents. N peers means a mesh of N·(N−1)/2 connections each needing its
   own negotiation state, or an SFU, which reintroduces a media server and
   ends the "nothing flows through the server" property.
@@ -360,7 +360,7 @@ assumption, so "support N peers" is a redesign, not a patch:
   room id.
 
 If you need it anyway: `lib/server/rooms.ts` would become a real membership
-registry (likely in a shared store — see the deployment note in the README),
+registry (likely in a shared store - see the deployment note in the README),
 `relay` would need addressing (today it is "the other occupant"), and
 `PeerSession` would become a per-remote-peer object under a session
 coordinator.

@@ -50,7 +50,7 @@ export function revealIn(scope: Element | null, options?: { stagger?: number; y?
   );
 }
 
-/** A short attention pulse — used when a note or file arrives. */
+/** A short attention pulse - used when a note or file arrives. */
 export function pulse(target: Element | null) {
   if (!target || prefersReducedMotion()) return;
   gsap.fromTo(

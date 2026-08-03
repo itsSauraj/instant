@@ -1,5 +1,5 @@
 /**
- * Transitional shim — the one-to-one `PeerSession` is gone.
+ * Transitional shim - the one-to-one `PeerSession` is gone.
  *
  * The session is now a full mesh: `lib/mesh-session.ts` (`MeshSession`) owns
  * one `lib/peer-link.ts` (`PeerLink`) per remote participant. The old type

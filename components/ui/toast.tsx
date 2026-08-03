@@ -69,7 +69,7 @@ function ToastItem({ toast }: { toast: Toast }) {
   );
 
   // Exit: the store flags `leaving` and removes the toast shortly after, so
-  // this tween only has to look right — removal never waits on it.
+  // this tween only has to look right - removal never waits on it.
   useGSAP(
     () => {
       if (!toast.leaving || !ref.current || prefersReducedMotion()) return;

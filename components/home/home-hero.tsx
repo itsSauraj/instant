@@ -55,7 +55,7 @@ export function HomeHero() {
       revealIn(scope.current, { stagger: 0.06, y: 18 });
 
       if (orbRef.current && !prefersReducedMotion()) {
-        // Slow breathing halo behind the hero — the one continuous motion on the
+        // Slow breathing halo behind the hero - the one continuous motion on the
         // page, so it reads as ambient rather than as an animation.
         gsap.to(orbRef.current, {
           scale: 1.12,
@@ -73,7 +73,7 @@ export function HomeHero() {
   /**
    * The name travels to `/room/<id>` via localStorage (`lib/identity.ts`), not
    * a query parameter: room URLs are exactly what people copy, paste and scan
-   * to invite each other, so anything in them is broadcast — and a recipient
+   * to invite each other, so anything in them is broadcast - and a recipient
    * opening `?name=Alice` would be misnamed after the sender. Storage keeps
    * the name private to this browser and alive across the reload that now
    * reclaims a session seat.

@@ -13,7 +13,7 @@ type QrState = "pending" | "ready" | "failed";
  * typing a 16-character code.
  *
  * Purely presentational: it knows nothing about the session store, and the
- * code is generated entirely in this browser — the URL is the session
+ * code is generated entirely in this browser - the URL is the session
  * credential, so it must never be sent to a QR image service.
  */
 export function QrInvite({
@@ -45,7 +45,7 @@ export function QrInvite({
 
     QRCode.toCanvas(canvas, url, {
       errorCorrectionLevel: "M",
-      margin: 2, // quiet zone, part of the spec — scanners rely on it
+      margin: 2, // quiet zone, part of the spec - scanners rely on it
       width: size * 2,
       // Fixed dark-on-white, independent of the app theme (see backing note).
       color: { dark: "#111318", light: "#ffffff" },
@@ -98,7 +98,7 @@ export function QrInvite({
         />
         {state === "failed" ? (
           // Generation failed (out of memory, bizarre URL...): degrade to the
-          // URL as selectable text — never a silent blank square.
+          // URL as selectable text - never a silent blank square.
           <span
             className="p-1 text-center font-mono text-[0.65rem] break-all text-neutral-900 select-all"
             style={{ maxWidth: size }}

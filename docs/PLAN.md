@@ -60,7 +60,7 @@ lib/
 
 ---
 
-# Phase 1 — Project Setup
+# Phase 1 - Project Setup
 
 - Create Next.js project
 - Configure TypeScript
@@ -74,7 +74,7 @@ Deliverable:
 
 ---
 
-# Phase 2 — Room System
+# Phase 2 - Room System
 
 Generate a random room ID.
 
@@ -96,7 +96,7 @@ Deliverable:
 
 ---
 
-# Phase 3 — Signaling Server
+# Phase 3 - Signaling Server
 
 Purpose:
 
@@ -122,7 +122,7 @@ Deliverable:
 
 ---
 
-# Phase 4 — WebRTC Connection
+# Phase 4 - WebRTC Connection
 
 Create:
 
@@ -153,7 +153,7 @@ Deliverable:
 
 ---
 
-# Phase 5 — Messaging
+# Phase 5 - Messaging
 
 Use the DataChannel.
 
@@ -170,7 +170,7 @@ Deliverable:
 
 ---
 
-# Phase 6 — Polish
+# Phase 6 - Polish
 
 Improve UX.
 
@@ -280,7 +280,7 @@ Signaling
 
 ---
 
-# Phase 6 — File Transfer
+# Phase 6 - File Transfer
 
 Transfer files directly between connected peers using the WebRTC DataChannel.
 

@@ -3,7 +3,7 @@
  *
  * Stored in `localStorage` (key mirrors `instant-theme` / `instant-sound`)
  * rather than carried in the room URL: an invite link gets pasted, shared and
- * scanned, and a name embedded in it would leak to everyone the link reaches —
+ * scanned, and a name embedded in it would leak to everyone the link reaches -
  * and would overwrite the *recipient's* name with the sender's. Local storage
  * also survives a page reload, which matters because a reload now reclaims the
  * same session seat and must re-present the same identity.

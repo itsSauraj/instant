@@ -5,7 +5,7 @@
  * certificate whose fingerprint travels in the signed SDP. If the two people
  * compare a digest of BOTH fingerprints out of band (reading emojis aloud on
  * the call, or in person) and they match, no relay or middlebox is sitting
- * between them re-encrypting traffic — the encryption is end-to-end for
+ * between them re-encrypting traffic - the encryption is end-to-end for
  * everything the link carries: notes, doc edits, files, audio and video.
  *
  * The digest is rendered as 10 emojis from a 64-entry alphabet (~60 bits),

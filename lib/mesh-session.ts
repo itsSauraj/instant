@@ -47,7 +47,7 @@ export type MeshPhase =
   | "waiting-approval" // knocked; the host has been asked
   | "lobby" // seated, alone
   | "connected" // at least one other participant holds a seat
-  | "ended"; // terminal — requires a brand-new join
+  | "ended"; // terminal - requires a brand-new join
 
 /** A roster entry decorated with the state of our direct link to it. */
 export type MeshParticipant = Participant & {
@@ -66,7 +66,7 @@ export type Note = {
   id: string;
   text: string;
   at: number;
-  /** Who wrote it — resolved when the note is applied, so the label survives
+  /** Who wrote it - resolved when the note is applied, so the label survives
    *  the author later leaving the room. */
   authorId: PeerId;
   authorName: string;
@@ -108,7 +108,7 @@ export type MeshSnapshot = {
   phase: MeshPhase;
   self: Participant | null;
   /** Everyone else on the roster (self is separate), ordered by `joinedAt`.
-   *  Away peers stay listed — their seat is held while they reload. */
+   *  Away peers stay listed - their seat is held while they reload. */
   participants: MeshParticipant[];
   capacity: number;
   isHost: boolean;
@@ -133,8 +133,8 @@ export type MeshSnapshot = {
   moderation: { seq: number; action: ModerationAction; byName: string } | null;
   /**
    * Most recent host-change notification, on the same contract as
-   * `moderation`: `seq` increases on EVERY `host-changed` event — repeats
-   * included — so a UI that de-duplicates by `seq` reacts exactly once per
+   * `moderation`: `seq` increases on EVERY `host-changed` event - repeats
+   * included - so a UI that de-duplicates by `seq` reacts exactly once per
    * handover and can never swallow a second one. `becameHost` is true only on
    * the client that just became host; `byChoice` distinguishes a deliberate
    * handover from automatic succession. Null until the first event.
@@ -168,7 +168,7 @@ const TYPING_EXPIRE_MS = 4000;
  * After a link dies locally (ICE failure, silent channel close) the initiator
  * side rebuilds it. The delay gives the other end time to notice the same
  * failure and tear down its half, so the fresh offer lands on a fresh
- * connection — and gives an in-flight authoritative `peer-away`/`peer-left`
+ * connection - and gives an in-flight authoritative `peer-away`/`peer-left`
  * a chance to arrive first and cancel the rebuild entirely.
  */
 const LINK_REBUILD_DELAY_MS = 2500;
@@ -266,7 +266,7 @@ export class MeshSession {
    *  swapped for the real browser provider once `initTransferInfra` runs. */
   private sinkProvider: SinkProvider = createMemorySinkProvider();
   /** IndexedDB partial-transfer store; null where storage is unavailable
-   *  (private browsing) — resume degrades, transfers still work. */
+   *  (private browsing) - resume degrades, transfers still work. */
   private partialStore: PartialStore | null = null;
   /** Resolves when provider + store are settled; the engine awaits this
    *  before making resume decisions so a fast peer cannot outrun setup. */
@@ -275,7 +275,7 @@ export class MeshSession {
   private partials: StoredPartial[] = [];
   /** Receiver-side annotations, e.g. "the sender must re-select this file". */
   private readonly partialNotes = new Map<string, string>();
-  /** Files this session has offered, by transfer uid — the resume registry.
+  /** Files this session has offered, by transfer uid - the resume registry.
    *  Dies with the page: a File object cannot survive a reload, which is why
    *  a reloaded SENDER must re-select files (see the resume-req handling). */
   private readonly outgoingFiles = new Map<string, File>();
@@ -392,7 +392,7 @@ export class MeshSession {
 
   /**
    * The emoji fingerprint of the DTLS pair securing our link to one peer, for
-   * out-of-band verification (see lib/verify.ts). Null until the link is up —
+   * out-of-band verification (see lib/verify.ts). Null until the link is up -
    * fingerprints only exist once certificates have been exchanged.
    */
   getPairFingerprint = async (peerId: PeerId): Promise<PairFingerprint | null> => {
@@ -455,7 +455,7 @@ export class MeshSession {
     // Precedence per uid: a LIVE transfer on a current link tells the freshest
     // story; a persisted PARTIAL row (resumable, with the durable offset and
     // any re-select note) supersedes the RETIRED failed record the same
-    // interruption left behind — otherwise the resume affordance would be
+    // interruption left behind - otherwise the resume affordance would be
     // invisible until the session ended.
     const transfers: MeshTransfer[] = [];
     for (const [peerId, link] of this.links) {
@@ -478,7 +478,7 @@ export class MeshSession {
     }
 
     // Persisted partials from earlier sessions/links surface as resumable
-    // rows — unless a live or finished record for the same uid already tells
+    // rows - unless a live or finished record for the same uid already tells
     // a fresher story (e.g. the transfer resumed and is running right now).
     const knownUids = new Set(
       transfers.filter((t) => t.direction === "incoming").map((t) => t.uid),
@@ -497,7 +497,7 @@ export class MeshSession {
         status: "failed",
         error:
           this.partialNotes.get(partial.id) ??
-          "Interrupted — will continue when the sender reconnects",
+          "Interrupted - will continue when the sender reconnects",
         isImage: partial.mime.startsWith("image/"),
         startedAt: partial.updatedAt,
         peerId: partial.peerId,
@@ -652,7 +652,7 @@ export class MeshSession {
 
   /**
    * Terminal teardown. Idempotent, and safe to call from any callback.
-   * Everything the session holds — links, tracks, timers, object URLs — is
+   * Everything the session holds - links, tracks, timers, object URLs - is
    * released here; nothing after this can resurrect the instance.
    */
   end(reason: EndReason, options?: { keepResumeToken?: boolean }) {
@@ -665,7 +665,7 @@ export class MeshSession {
     // that raced it (the far side's pc.close() raises channel errors moments
     // before the authoritative `ended`/`peer-left` arrives) must not linger to
     // be rendered beside that explanation. A transport-error end keeps its
-    // message — there the error IS the explanation.
+    // message - there the error IS the explanation.
     if (reason !== "transport-error") this.error = null;
 
     // A refresh may reclaim the seat only when the session ended by accident.
@@ -693,7 +693,7 @@ export class MeshSession {
 
     if (this.signal) {
       // leave()/close() already said goodbye and nulled this; getting here
-      // means the server ended things (or the transport died) — just abort.
+      // means the server ended things (or the transport died) - just abort.
       const signal = this.signal;
       this.signal = null;
       signal.dispose();
@@ -712,7 +712,7 @@ export class MeshSession {
     this.stopLocalMedia();
 
     // The outgoing-file registry holds real File handles; a dead session must
-    // not pin them. Persisted PARTIAL records survive on purpose — they are
+    // not pin them. Persisted PARTIAL records survive on purpose - they are
     // what the next session resumes from.
     this.outgoingFiles.clear();
     this.partialNotes.clear();
@@ -723,7 +723,7 @@ export class MeshSession {
       if (holder.__instantMeshSession === this) delete holder.__instantMeshSession;
     }
 
-    // Wipe the transcript (in-memory only; see report — notes do not survive
+    // Wipe the transcript (in-memory only; see report - notes do not survive
     // a reload either, by design for this phase).
     this.notes = [];
     this.knocks = [];
@@ -800,7 +800,7 @@ export class MeshSession {
         if (event.away) {
           // Their page is gone (reload/blip); the RTCPeerConnection is dead
           // even though the seat is held. Tear our half down so a *fresh*
-          // link is built when they return — the roster entry stays visible.
+          // link is built when they return - the roster entry stays visible.
           this.destroyLink(event.peerId, "Peer reconnecting");
         } else {
           this.ensureLink(this.others.get(event.peerId)!);
@@ -828,7 +828,7 @@ export class MeshSession {
         let link: PeerLink | null = this.links.get(event.from) ?? null;
         if (!link) {
           // A signal from a rostered peer with no live link means the far side
-          // is (re)building its half — after a failure we tore down, or a
+          // is (re)building its half - after a failure we tore down, or a
           // return from away racing the roster update. Create ours lazily so
           // the negotiation is not lost; if we happen to be the initiator for
           // this pair too, perfect negotiation absorbs the offer glare.
@@ -851,7 +851,7 @@ export class MeshSession {
       case "host-changed": {
         // Notification only. Host-ness itself (this.isHost, and each roster
         // entry's flag) is applied exclusively from the authoritative roster
-        // the server emits alongside this event — deriving it here could
+        // the server emits alongside this event - deriving it here could
         // disagree with that roster, and the roster must win. `seq` moves on
         // EVERY event, repeats included, so a UI de-duplicating by `seq` can
         // never swallow a second handover.
@@ -877,7 +877,7 @@ export class MeshSession {
         // as the local toggle, so the track genuinely stops and every peer
         // sees it stop. Already-off is a no-op (the guard), never an error.
         // The ask-* actions deliberately touch NOTHING here: a remote party
-        // must never be able to switch someone's microphone or camera ON —
+        // must never be able to switch someone's microphone or camera ON -
         // the media panel prompts and the user decides.
         if (isEnforced(event.action)) {
           if (event.action === "mute-audio" && this.micTrack) void this.toggleMic();
@@ -907,8 +907,8 @@ export class MeshSession {
 
   /**
    * Reconciliation from the authoritative roster. Idempotent by construction
-   * — a reload replays it, and the server resends it on every membership or
-   * capacity change — so every step is "ensure", never "assume new".
+   * - a reload replays it, and the server resends it on every membership or
+   * capacity change - so every step is "ensure", never "assume new".
    */
   private reconcileRoster(roster: Participant[], capacity: number) {
     this.capacity = capacity;
@@ -938,7 +938,7 @@ export class MeshSession {
     }
 
     // Ensure exactly one link per *present* peer; none for away seats (their
-    // page — and therefore their RTCPeerConnection — no longer exists).
+    // page - and therefore their RTCPeerConnection - no longer exists).
     for (const p of this.others.values()) {
       if (p.away) {
         this.destroyLink(p.id, "Peer reconnecting");
@@ -1062,8 +1062,8 @@ export class MeshSession {
 
   /**
    * This link died locally (ICE failure, or a channel closed with no
-   * authoritative reason). Only this pair is affected: tear it down and — on
-   * the initiator side only — rebuild after a short delay. The non-initiator
+   * authoritative reason). Only this pair is affected: tear it down and - on
+   * the initiator side only - rebuild after a short delay. The non-initiator
    * simply waits; the rebuilt side's offer recreates its half lazily (see the
    * `signal` event handler), so both ends converge without ever double-
    * offering.
@@ -1144,7 +1144,7 @@ export class MeshSession {
             : crypto.randomUUID(),
         text: frame.text.slice(0, MAX_NOTE_LENGTH),
         at: this.safeTimestamp(frame.at),
-        // Attribution comes from the link the frame arrived on — the wire
+        // Attribution comes from the link the frame arrived on - the wire
         // frame is untouched, so a peer cannot impersonate another.
         authorId: peerId,
         authorName: author?.name ?? "Peer",
@@ -1300,7 +1300,7 @@ export class MeshSession {
   }
 
   /**
-   * Streams files to the selected peers — a `SendTargets` list, a single peer
+   * Streams files to the selected peers - a `SendTargets` list, a single peer
    * id (legacy), or everyone connected. Each file is read from disk exactly
    * once per chunk and fanned out to every recipient's channel; only the
    * 4-byte id framing is per-recipient work (see `sendFileToManagers`).
@@ -1504,8 +1504,8 @@ export class MeshSession {
   /**
    * The budget counts the peers actually meshed with us (non-away seats,
    * self included): each of them costs one uploaded copy of our video, which
-   * is what a home uplink runs out of. Away seats cost nothing — their
-   * connection is gone — so they do not depress everyone else's quality.
+   * is what a home uplink runs out of. Away seats cost nothing - their
+   * connection is gone - so they do not depress everyone else's quality.
    */
   private currentBudget() {
     let count = 1; // self
@@ -1559,7 +1559,7 @@ export class MeshSession {
   }
 
   /** Host only: moderate one participant's devices, or everyone else's when
-   *  `peerId` is null. The local guard only saves a pointless request — the
+   *  `peerId` is null. The local guard only saves a pointless request - the
    *  SERVER is what enforces host-ness (403 for anyone else). */
   moderate(peerId: PeerId | null, action: ModerationAction) {
     if (!this.isHost || this.phase === "ended") return;
@@ -1571,8 +1571,8 @@ export class MeshSession {
    *
    * Nothing is asserted locally. The server is the authority: it emits
    * `host-changed` to everyone (`becameHost: true` only in the new host's
-   * copy) plus a fresh roster, and `isHost` on every client — this one
-   * included — follows that roster. So a host who transfers and then
+   * copy) plus a fresh roster, and `isHost` on every client - this one
+   * included - follows that roster. So a host who transfers and then
    * `leave()`s cannot re-assert host-ness locally: no code path sets
    * `isHost` except `welcome` and the roster.
    */

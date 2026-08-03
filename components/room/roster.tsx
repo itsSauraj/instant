@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 /**
  * The room's roster: everyone currently seated, in join order (matching the
  * video grid, which sorts the same way). Compact rows so seven people fit on
- * a phone without scrolling the page — the list scrolls itself if it must.
+ * a phone without scrolling the page - the list scrolls itself if it must.
  */
 export function Roster({
   participants,

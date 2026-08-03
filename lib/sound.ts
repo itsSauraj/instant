@@ -10,7 +10,7 @@
  * Smoothness is engineered, not hoped for:
  *  - voices are detuned sine pairs plus a quiet octave, never square/saw;
  *  - gain only ever moves through ramps (linear attack, `setTargetAtTime`
- *    exponential release) — an instantaneous gain step is an audible click;
+ *    exponential release) - an instantaneous gain step is an audible click;
  *  - every voice passes a gentle lowpass whose cutoff breathes with the
  *    envelope, which removes the last of the "digital" edge;
  *  - a shared master bus (procedural convolver tail -> soft-knee compressor
@@ -86,7 +86,7 @@ type NoteSpec = {
   glideTo?: number;
   /** Glide time in seconds (defaults to 0.1). */
   glideTime?: number;
-  /** Attack seconds. Never below 0.02 — a faster attack on a sine clicks. */
+  /** Attack seconds. Never below 0.02 - a faster attack on a sine clicks. */
   attack?: number;
   /** Full-level hold before the release begins. */
   hold?: number;
@@ -118,7 +118,7 @@ const CUES: Record<SoundCue, NoteSpec[]> = {
     { at: 0, f: E5, hold: 0.02, tau: 0.07, peak: 0.38 },
     { at: 0.12, f: A5, hold: 0.03, tau: 0.11, peak: 0.42 },
   ],
-  // A warm rising triad arpeggio — a small welcome.
+  // A warm rising triad arpeggio - a small welcome.
   peerJoined: [
     { at: 0, f: A4, hold: 0.02, tau: 0.07, peak: 0.4 },
     { at: 0.1, f: CS5, hold: 0.02, tau: 0.08, peak: 0.4 },
@@ -135,7 +135,7 @@ const CUES: Record<SoundCue, NoteSpec[]> = {
     { at: 0.14, f: CS5, hold: 0.02, tau: 0.09, peak: 0.38 },
     { at: 0.28, f: A4, hold: 0.04, tau: 0.12, peak: 0.42 },
   ],
-  // One neutral mid "pip" — an acknowledgement, not a fanfare.
+  // One neutral mid "pip" - an acknowledgement, not a fanfare.
   fileStarted: [{ at: 0, f: D5, hold: 0.02, tau: 0.06, peak: 0.34 }],
   // A rising fourth in a low, round register.
   fileSent: [
@@ -147,7 +147,7 @@ const CUES: Record<SoundCue, NoteSpec[]> = {
     { at: 0, f: D5, hold: 0.02, tau: 0.07, peak: 0.4 },
     { at: 0.1, f: A5, hold: 0.03, tau: 0.11, peak: 0.42 },
   ],
-  // A single continuous downward slide — deflating, but soft.
+  // A single continuous downward slide - deflating, but soft.
   fileFailed: [{ at: 0, f: D5, glideTo: A4, glideTime: 0.16, hold: 0.03, tau: 0.1, peak: 0.4 }],
   // Short low upward glide, a fourth.
   micOn: [{ at: 0, f: E4, glideTo: A4, glideTime: 0.09, hold: 0.02, tau: 0.07, peak: 0.42 }],
@@ -167,7 +167,7 @@ const CUES: Record<SoundCue, NoteSpec[]> = {
     { at: 0, f: A3, hold: 0.015, tau: 0.05, peak: 0.5, cutoff: 1200 },
     { at: 0.16, f: A3, hold: 0.015, tau: 0.05, peak: 0.5, cutoff: 1200 },
   ],
-  // Low, dull and falling — a soft "uh-oh", filtered darker than everything else.
+  // Low, dull and falling - a soft "uh-oh", filtered darker than everything else.
   error: [
     { at: 0, f: E4, glideTo: CS4, glideTime: 0.12, hold: 0.03, tau: 0.13, peak: 0.46, cutoff: 1600 },
   ],
@@ -181,7 +181,7 @@ const CUES: Record<SoundCue, NoteSpec[]> = {
  * added downstream).
  *
  * Exported deliberately: the live engine and the verification script render
- * the *same* code path — the script through an OfflineAudioContext — so what
+ * the *same* code path - the script through an OfflineAudioContext - so what
  * is asserted offline is exactly what plays live.
  */
 export function scheduleCue(
@@ -213,7 +213,7 @@ function scheduleNote(
   const end = t0 + attack + hold + tau * 7;
 
   // Envelope: linear attack (>= 20 ms so a sine cannot click on), then an
-  // exponential release via setTargetAtTime — the decay shape the ear expects.
+  // exponential release via setTargetAtTime - the decay shape the ear expects.
   // Never an instantaneous step, never a ramp that lands exactly on zero.
   const env = ctx.createGain();
   env.gain.setValueAtTime(0, t0);
@@ -233,7 +233,7 @@ function scheduleNote(
   env.connect(destination);
 
   // Warmth: two sines a few cents apart beat slowly against each other; a
-  // quiet octave doubles as "air". Sine only — square/saw harmonics are harsh.
+  // quiet octave doubles as "air". Sine only - square/saw harmonics are harsh.
   const layers: { ratio: number; cents: number; gain: number }[] = [
     { ratio: 1, cents: -6, gain: 0.5 },
     { ratio: 1, cents: 6, gain: 0.5 },
@@ -292,7 +292,7 @@ export type OutputChain = {
  * A convolver with a procedurally generated impulse response was chosen over
  * a feedback delay because a delay's discrete repeats sound metallic on short
  * chimes, while decaying noise gives a small, diffuse room. No file is
- * fetched — the impulse is synthesized into an AudioBuffer right here.
+ * fetched - the impulse is synthesized into an AudioBuffer right here.
  *
  * Exported so the verification script can render cues through the exact
  * live signal chain inside an OfflineAudioContext.
@@ -388,7 +388,7 @@ export function setMuted(next: boolean) {
     // Storage unavailable (private browsing): the choice won't persist.
   }
   // Duck the master immediately so an in-flight cue does not ring on after
-  // the user asked for silence — still a ramp, never a step.
+  // the user asked for silence - still a ramp, never a step.
   if (engine) {
     const now = engine.ctx.currentTime;
     engine.chain.master.gain.setTargetAtTime(next ? 0 : MASTER_LEVEL, now, 0.02);

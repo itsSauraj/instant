@@ -53,9 +53,9 @@ const TYPING_IDLE_MS = 1500;
  * spread open, plus streams and stable action callbacks.
  *
  * `useSessionSounds` and `useSessionNotifications` consume this object
- * structurally — `phase`, `endReason`, `error`, `notes[].mine`,
+ * structurally - `phase`, `endReason`, `error`, `notes[].mine`,
  * `transfers[]{key,name,direction,status,error}`, `media.{micOn,cameraOn,
- * screenOn,remoteAudioLive,remoteVideoLive}` — so those fields keep their
+ * screenOn,remoteAudioLive,remoteVideoLive}` - so those fields keep their
  * names and shapes across the mesh rewrite.
  */
 export function usePeerSession(roomId: string, displayName = "") {
@@ -130,7 +130,7 @@ export function usePeerSession(roomId: string, displayName = "") {
 
   /**
    * Send to everyone (no second argument), to an explicit `SendTargets` list
-   * of peer ids, or — legacy convenience — to a single peer id string.
+   * of peer ids, or - legacy convenience - to a single peer id string.
    */
   const sendFiles = useCallback(
     (files: File[], to?: SendTargets | PeerId | null) => {
@@ -194,7 +194,7 @@ export function usePeerSession(roomId: string, displayName = "") {
   /** Host only: hand the room to another participant and stay as a guest.
    *  Confirmation arrives as the `hostChange` notification on the snapshot
    *  (react to it once per `seq`), while `isHost` flips via the authoritative
-   *  roster — the roster, not the notification, is the truth. */
+   *  roster - the roster, not the notification, is the truth. */
   const transferHost = useCallback((peerId: PeerId) => session?.transferHost(peerId), [session]);
 
   // An ended session has no streams. The MediaStream objects themselves live
@@ -222,7 +222,7 @@ export function usePeerSession(roomId: string, displayName = "") {
     [session],
   );
 
-  // Convenience map for grid rendering. Rebuilt per snapshot render — with a
+  // Convenience map for grid rendering. Rebuilt per snapshot render - with a
   // 7-person cap this is at most six lookups.
   const remoteStreams = new Map<PeerId, MediaStream>();
   if (live && session) {

@@ -11,8 +11,8 @@ import { cn } from "@/lib/utils";
  *
  * A stepper rather than a slider or free input: the range is seven discrete
  * values and each change is a deliberate act the server must ratify. Lowering
- * the limit below the current headcount is allowed — it ejects nobody, it
- * only stops further joins — and the copy says so the moment that happens.
+ * the limit below the current headcount is allowed - it ejects nobody, it
+ * only stops further joins - and the copy says so the moment that happens.
  */
 export function CapacityControl({
   capacity,

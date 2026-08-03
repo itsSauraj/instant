@@ -21,7 +21,7 @@ export type SessionSoundsInput = {
   knocks?: ReadonlyArray<{ knockId: string }>;
 };
 
-/** What we remember between renders — just enough to detect edges. */
+/** What we remember between renders - just enough to detect edges. */
 type Remembered = {
   phase: string;
   error: string | null;
@@ -53,7 +53,7 @@ function remember(input: SessionSoundsInput): Remembered {
 /**
  * Fires a sound cue on each session transition. Edges are detected by
  * comparing the current render against the previous one, so cues fire on
- * TRANSITIONS ONLY — never on plain re-renders, and never as a burst on first
+ * TRANSITIONS ONLY - never on plain re-renders, and never as a burst on first
  * mount when pre-existing state (old notes, finished transfers) is first seen.
  */
 export function useSessionSounds(input: SessionSoundsInput) {

@@ -23,13 +23,13 @@ import type { Participant, PeerId } from "@/lib/signal-protocol";
 import { cn } from "@/lib/utils";
 
 /**
- * "Who takes over?" — the step between a host choosing Leave and actually
+ * "Who takes over?" - the step between a host choosing Leave and actually
  * leaving. A room without a host strands everyone (nobody can admit or close),
  * so the host may not slip out without answering this.
  *
  * Three honest shapes, depending on who is available:
  *  - Somebody eligible: a dropdown of seated, present participants. The host
- *    themself and `away` participants are not candidates — a held seat cannot
+ *    themself and `away` participants are not candidates - a held seat cannot
  *    act as host, and the server refuses both anyway. The confirm button is
  *    the affordance: disabled until a choice is made.
  *  - Everyone else away: no valid recipient, said plainly instead of an empty
@@ -39,7 +39,7 @@ import { cn } from "@/lib/utils";
  *
  * The ACT (transfer first, leave only once the server ratifies it) lives in
  * room-client; `pendingName` reflects that in-flight state here. Initial
- * focus is always Cancel — never the destructive or consequential action.
+ * focus is always Cancel - never the destructive or consequential action.
  */
 export function HostTransferDialog({
   open,
@@ -57,7 +57,7 @@ export function HostTransferDialog({
   pendingName: string | null;
   /** Transfer host to `peerId`, then leave once the server confirms it. */
   onTransferAndLeave: (peerId: PeerId) => void;
-  /** Leave with no successor — only offered when there is nobody eligible. */
+  /** Leave with no successor - only offered when there is nobody eligible. */
   onLeaveWithoutTransfer: () => void;
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);

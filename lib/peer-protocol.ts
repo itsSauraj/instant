@@ -88,7 +88,7 @@ export const MAX_RESUME_REQUESTS_PER_LINK = 32;
  * rides every chunk as the 4-byte header) and CANNOT survive a reload. `uid`
  * is a sender-minted token (`crypto.randomUUID()`) that names the (sender,
  * file) pair durably: the receiver keys its persisted partial records by it.
- * Same-file identity across a reload is `name + size + lastModified` — enough
+ * Same-file identity across a reload is `name + size + lastModified` - enough
  * to refuse resuming against a different file without hashing gigabytes
  * before the first byte moves.
  *
@@ -101,7 +101,7 @@ export const MAX_RESUME_REQUESTS_PER_LINK = 32;
  *            resuming, verified the sink really starts at the claimed byte).
  *            `from` is the byte offset the sender must start at: 0 for a
  *            fresh transfer, the durable partial size when resuming. Chunks
- *            only flow after this frame — the receiver controls the offset.
+ *            only flow after this frame - the receiver controls the offset.
  *  - ack:    receiver -> sender, every TRANSFER_LIMITS.ackIntervalBytes, and
  *            only for bytes DURABLY in the sink (written + persisted), since
  *            resume rewinds to the last acked offset. Drives the sender's

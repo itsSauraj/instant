@@ -7,7 +7,7 @@ import { useEffect, useRef } from "react";
  * e.g. `(2) Instant - session`, and restores the original title exactly when
  * the tab regains focus (or the component unmounts).
  *
- * `activity` is any monotonically increasing counter of noteworthy events —
+ * `activity` is any monotonically increasing counter of noteworthy events -
  * e.g. `notes.length + completedTransfers`. The count shown is the number of
  * events since the tab was hidden, so pre-existing state never alerts.
  */
@@ -24,7 +24,7 @@ export function useTitleAlert(activity: number) {
     const count = activity - baseline.current;
     if (count <= 0) return;
     // Capture the title only once per hidden period, right before the first
-    // rewrite — anything the app set earlier is preserved verbatim.
+    // rewrite - anything the app set earlier is preserved verbatim.
     if (savedTitle.current === null) savedTitle.current = document.title;
     document.title = `(${count}) ${savedTitle.current}`;
   }, [activity]);

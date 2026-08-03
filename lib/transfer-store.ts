@@ -17,14 +17,14 @@ import { TRANSFER_LIMITS, type PartialTransfer } from "@/lib/transfer-contract";
  *    them themselves (the memory tier: its bytes die with the page). Written
  *    as append-only windows of ~ackIntervalBytes, keyed [uid, seq], committed
  *    in the SAME transaction as the metadata update so `received` can never
- *    claim bytes that were not durably stored — the receiver's ack (and
+ *    claim bytes that were not durably stored - the receiver's ack (and
  *    therefore the sender's resume rewind point) is only honest because of
  *    this atomicity. Deleted the moment the transfer completes or is
  *    discarded.
  *
  * Everything degrades: private browsing modes where IndexedDB is missing or
  * throws yield a `null` store, and every method swallows storage failures.
- * Transfers still work without it — they just restart from zero after a
+ * Transfers still work without it - they just restart from zero after a
  * reload, which is exactly the pre-resume behaviour.
  */
 
@@ -74,7 +74,7 @@ export type PartialStore = {
   /**
    * The persisted windows for `id`, in order, or null when they are missing
    * or do not add up to `expectedBytes` (torn/stale data must never be
-   * replayed into a sink — a corrupt resume is worse than a restart).
+   * replayed into a sink - a corrupt resume is worse than a restart).
    */
   readBytes(id: string, expectedBytes: number): Promise<Uint8Array[] | null>;
   /** Removes the record and any persisted bytes. Safe on unknown ids. */

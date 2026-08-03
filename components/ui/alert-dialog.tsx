@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
  *
  * It differs from `dialog.tsx` deliberately:
  *  - `role="alertdialog"`, so screen readers announce it as needing a decision;
- *  - no corner X and no dismissal by clicking outside — the only ways out are
+ *  - no corner X and no dismissal by clicking outside - the only ways out are
  *    the explicit Cancel and Action buttons (Escape still cancels);
  *  - initial focus lands on Cancel, so Enter never triggers the destructive
  *    action by accident.
@@ -47,7 +47,7 @@ function AlertDialogContent({
         onOpenAutoFocus={(event) => {
           // Focus the safe way out first. Radix would otherwise focus the
           // first tabbable element, which is Cancel anyway in our footer
-          // order — but make it explicit rather than positional.
+          // order - but make it explicit rather than positional.
           const cancel = (event.currentTarget as HTMLElement | null)?.querySelector<HTMLElement>(
             '[data-slot="alert-dialog-cancel"]',
           );

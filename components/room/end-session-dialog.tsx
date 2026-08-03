@@ -16,17 +16,17 @@ import { cn } from "@/lib/utils";
  * The host's single entry point for ending their participation, offering the
  * two genuinely different acts side by side:
  *
- *  1. Leave — the room CONTINUES for the others. Choosing it hands off to the
+ *  1. Leave - the room CONTINUES for the others. Choosing it hands off to the
  *     successor picker (HostTransferDialog), because a room without a host
  *     strands everyone: only the host can admit people or close it.
- *  2. Close for everyone — destructive and final; the consequence is named on
+ *  2. Close for everyone - destructive and final; the consequence is named on
  *     the option itself, so the click that follows is an informed one.
  *
  * Non-hosts never see this dialog: their Leave affects only themselves, so
  * there is no choice to offer (room-client keeps their plain button).
  *
  * Focus lands on the SAFE option (Leave). Both options are ordinary buttons in
- * a plain dialog — a second confirmation layer would triple-ask for "close"
+ * a plain dialog - a second confirmation layer would triple-ask for "close"
  * (the rail button, this dialog, then an alert) without adding information the
  * option text does not already carry.
  */
@@ -77,7 +77,7 @@ export function EndSessionDialog({
           >
             <span className="flex items-center gap-2 text-sm font-medium">
               <DoorOpen aria-hidden className="size-4 shrink-0" />
-              {alone ? "Leave" : "Leave — the session continues"}
+              {alone ? "Leave" : "Leave - the session continues"}
             </span>
             {/* Alone there is no continuing room, which is destructive enough
                 to warrant the one short line. */}

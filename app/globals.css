@@ -47,7 +47,7 @@
   --input: oklch(0.915 0.014 290);
   --ring: oklch(0.55 0.17 292);
 
-  /* The spec's `soft` shadow: a deep drop, always dark — never derived from
+  /* The spec's `soft` shadow: a deep drop, always dark - never derived from
      the foreground, which would invert into a pale halo in dark mode. */
   --panel-shadow: 0 16px 40px -20px oklch(0.22 0.03 285 / 0.35);
 }

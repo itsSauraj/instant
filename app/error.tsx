@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 /**
  * Route-level error boundary. Catches render-time exceptions anywhere below
  * the root layout so a crash shows a recoverable screen instead of blanking
- * the page. Deliberately no GSAP here — a boundary must render even when an
+ * the page. Deliberately no GSAP here - a boundary must render even when an
  * animation module is what threw.
  */
 export default function RouteError({

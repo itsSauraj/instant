@@ -338,7 +338,7 @@ export function ParticipantsPanel({
                         }}
                       >
                         <ShieldCheck className="size-3.5" />
-                        They match — verify
+                        They match - verify
                       </Button>
                     )}
                   </div>

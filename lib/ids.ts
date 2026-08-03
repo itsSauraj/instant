@@ -19,7 +19,7 @@ function randomChars(length: number) {
   return out;
 }
 
-/** Canonical form, e.g. `k3f9mq2t8xbv7rn0` — grouping is display-only via `prettyRoomId`. */
+/** Canonical form, e.g. `k3f9mq2t8xbv7rn0` - grouping is display-only via `prettyRoomId`. */
 export function createRoomId() {
   return randomChars(ROOM_ID_LENGTH);
 }

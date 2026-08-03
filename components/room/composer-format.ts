@@ -1,6 +1,6 @@
 /**
  * Selection-aware markdown edits for the note composer, Slack-style: each
- * action toggles — applying it to already-formatted text removes the markers.
+ * action toggles - applying it to already-formatted text removes the markers.
  * Pure functions over (value, selection) so the behavior is easy to test.
  */
 

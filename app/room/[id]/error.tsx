@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button";
 
 /**
  * Room-level error boundary. If anything inside the session UI throws during
- * render, the live peer session it was managing is torn down with it — so be
+ * render, the live peer session it was managing is torn down with it - so be
  * honest: the connection is gone. "Try again" re-renders the segment, which
  * attempts a fresh join of the same room; it cannot resume the old connection.
- * Deliberately no GSAP — this must render even if an animation module threw.
+ * Deliberately no GSAP - this must render even if an animation module threw.
  */
 export default function RoomError({
   error,

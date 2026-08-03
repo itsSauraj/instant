@@ -21,13 +21,13 @@ import { cn } from "@/lib/utils";
 
 /**
  * Host-only room controls: the participant limit, and the one irreversible act
- * — closing the session for everyone. Only the host may close a room
+ * - closing the session for everyone. Only the host may close a room
  * (delegating that right no longer exists), so the close button lives here and
  * nowhere else, behind an explicit confirmation.
  *
  * Pinning is deliberately NOT here. A pin is a property of a person's video, so
  * it belongs on their tile in the Audio & video grid where you can see who you
- * are pinning — putting it in a dropdown here divorced it from the thing it
+ * are pinning - putting it in a dropdown here divorced it from the thing it
  * acts on.
  *
  * The server enforces every one of these; this panel merely issues the
@@ -63,7 +63,7 @@ export function HostPanel({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <p className="text-muted-foreground min-w-0 flex-1 text-sm">
           Ending the session disconnects everyone at once. To leave while the session
-          continues for the others, use the End session control in the left rail — it lets
+          continues for the others, use the End session control in the left rail - it lets
           you hand hosting to someone first.
         </p>
 

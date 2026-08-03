@@ -89,7 +89,7 @@ const MAX_SAFE_TRANSFER_ID = 0xffffffff; // must fit the 4-byte chunk header
 /**
  * Last-resort sink provider: the Phase 1 behaviour (accumulate in memory,
  * finish as an object URL), expressed through the contract so the engine has
- * exactly one receive path. Used until the real provider module loads — and
+ * exactly one receive path. Used until the real provider module loads - and
  * forever in environments where it cannot.
  */
 export function createMemorySinkProvider(): SinkProvider {
@@ -159,7 +159,7 @@ type Inbound = {
    *  sink.written (tiers whose destination itself survives). */
   durable: number;
   lastAcked: number;
-  /** Mirror windows into IndexedDB (memory tier only — its bytes die with
+  /** Mirror windows into IndexedDB (memory tier only - its bytes die with
    *  the page; streaming tiers keep their own bytes). */
   persistBytes: boolean;
   nextSeq: number;
@@ -257,7 +257,7 @@ export class FileTransferManager {
 
   /**
    * Opens one outgoing transfer: creates the record, sends the offer and
-   * waits for the receiver's `accept` (which carries the start offset — the
+   * waits for the receiver's `accept` (which carries the start offset - the
    * receiver may resume a partial it already holds durably). Resolves null
    * when this recipient cannot take the file (declined, timed out, cancelled,
    * channel gone); the record is already finished with the right status.
@@ -520,7 +520,7 @@ export class FileTransferManager {
     }
 
     // The file must still BE the file the partial came from. If it is not,
-    // restart cleanly (`fresh` orders the receiver to drop its partial) —
+    // restart cleanly (`fresh` orders the receiver to drop its partial) -
     // splicing two files together is the one unforgivable outcome.
     const matches =
       file.name === frame.name &&
@@ -666,12 +666,12 @@ export class FileTransferManager {
     if (existing) {
       // A well-behaved sender never reuses an id; accepting would orphan the
       // previous record and leak its sink. Only answer with a cancel frame
-      // when the original is finished — while it is still live, a cancel for
+      // when the original is finished - while it is still live, a cancel for
       // this id would abort the original transfer.
       if (existing.status !== "active" && existing.status !== "pending") {
         this.send({ k: "cancel", id: frame.id, by: "receiver", reason: "Transfer id already used" });
       }
-      this.callbacks.onError(`Declined "${name}" — the peer reused transfer id ${frame.id}.`);
+      this.callbacks.onError(`Declined "${name}" - the peer reused transfer id ${frame.id}.`);
       return;
     }
 
@@ -683,7 +683,7 @@ export class FileTransferManager {
     if (this.inbound.size >= TRANSFER_LIMITS.maxActiveIncomingPerPeer) {
       decline(
         `More than ${TRANSFER_LIMITS.maxActiveIncomingPerPeer} simultaneous transfers`,
-        `Declined "${name}" — already receiving ${TRANSFER_LIMITS.maxActiveIncomingPerPeer} files ` +
+        `Declined "${name}" - already receiving ${TRANSFER_LIMITS.maxActiveIncomingPerPeer} files ` +
           `from this peer. Ask the sender to retry once the current transfers finish.`,
       );
       return;
@@ -696,7 +696,7 @@ export class FileTransferManager {
     if (capability.maxBytes !== null && frame.size > capability.maxBytes) {
       decline(
         `Larger than the ${formatBytes(capability.maxBytes)} limit`,
-        `Declined "${name}" — ${formatBytes(frame.size)} exceeds the ` +
+        `Declined "${name}" - ${formatBytes(frame.size)} exceeds the ` +
           `${formatBytes(capability.maxBytes)} limit of the current save destination.`,
       );
       return;
@@ -704,13 +704,13 @@ export class FileTransferManager {
 
     // The aggregate memory budget applies to the MEMORY tier only. Streaming
     // tiers never hold the file in memory, so charging them here would refuse
-    // perfectly safe transfers — the whole point of those tiers.
+    // perfectly safe transfers - the whole point of those tiers.
     if (capability.tier === "memory") {
       const committed = this.committedMemoryBytes();
       if (committed + frame.size > TRANSFER_LIMITS.maxSessionMemoryBytes) {
         decline(
           `Receive memory budget of ${formatBytes(TRANSFER_LIMITS.maxSessionMemoryBytes)} exhausted`,
-          `Declined "${name}" — accepting ${formatBytes(frame.size)} would exceed the ` +
+          `Declined "${name}" - accepting ${formatBytes(frame.size)} would exceed the ` +
             `${formatBytes(TRANSFER_LIMITS.maxSessionMemoryBytes)} this session can hold in memory. ` +
             `Save your received files and start a new session, then retry.`,
         );
@@ -856,7 +856,7 @@ export class FileTransferManager {
             candidate = null;
           }
           // Second choice: a fresh sink plus the bytes WE persisted (memory
-          // tier). Works into any tier — the windows are just writes.
+          // tier). Works into any tier - the windows are just writes.
           if (resume.hasBytes) {
             let fresh = candidate; // a candidate with written === 0 is fresh
             if (!fresh) {
@@ -920,7 +920,7 @@ export class FileTransferManager {
           await sink.abort();
           fail(
             `Receive memory budget exhausted`,
-            `Declined "${transfer.name}" — the save destination fell back to memory ` +
+            `Declined "${transfer.name}" - the save destination fell back to memory ` +
               `and the memory budget cannot hold it.`,
           );
           return;
@@ -1010,7 +1010,7 @@ export class FileTransferManager {
       const message = error instanceof Error ? error.message : "Could not open a destination";
       fail(
         "Could not open a save destination",
-        `Declined "${transfer.name}" — ${message}`,
+        `Declined "${transfer.name}" - ${message}`,
       );
     }
   }
@@ -1101,7 +1101,7 @@ export class FileTransferManager {
   /**
    * Persists the buffered window (memory tier) atomically with the updated
    * `received` offset. On storage failure resume is disabled for this
-   * transfer — the bytes in RAM are fine, so the transfer itself continues.
+   * transfer - the bytes in RAM are fine, so the transfer itself continues.
    */
   private async flushWindow(inbound: Inbound): Promise<void> {
     const store = this.context.store();
@@ -1167,7 +1167,7 @@ export class FileTransferManager {
       this.finish(
         transfer,
         "failed",
-        `Incomplete — got ${formatBytes(transfer.transferred)} of ${formatBytes(transfer.size)}`,
+        `Incomplete - got ${formatBytes(transfer.transferred)} of ${formatBytes(transfer.size)}`,
       );
       return;
     }
@@ -1232,7 +1232,7 @@ export class FileTransferManager {
   /**
    * An ACCIDENTAL interruption (link death, session teardown): keep the
    * durable partial so the transfer can continue later, flush what the sink
-   * already accepted, and release our references WITHOUT aborting — abort()
+   * already accepted, and release our references WITHOUT aborting - abort()
    * would delete the very bytes resume needs.
    */
   private suspendIncoming(inbound: Inbound) {
@@ -1303,7 +1303,7 @@ export class FileTransferManager {
 
   // ------------------------------------------------------------- lifecycle
 
-  /** Marks everything still running as failed — used when the channel drops.
+  /** Marks everything still running as failed - used when the channel drops.
    *  Incoming partials are SUSPENDED (kept durable for resume), not deleted. */
   failAll(reason: string) {
     for (const waiter of [...this.pendingAccepts.keys()]) this.settleAccept(waiter, null);
@@ -1319,7 +1319,7 @@ export class FileTransferManager {
   }
 
   /** Releases every sink and object URL. Without this a session leaks its
-   *  whole inbox. Partial records survive on purpose — they are the resume. */
+   *  whole inbox. Partial records survive on purpose - they are the resume. */
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
@@ -1340,8 +1340,8 @@ export class FileTransferManager {
 
 /**
  * Fan-out: streams ONE file to several recipients with a single pass over the
- * disk. The file is read in `READ_SPAN_BYTES` spans — each span is ONE
- * `file.slice().arrayBuffer()` — and wire-sized chunks are framed from the
+ * disk. The file is read in `READ_SPAN_BYTES` spans - each span is ONE
+ * `file.slice().arrayBuffer()` - and wire-sized chunks are framed from the
  * in-memory span for every recipient. The only per-recipient work is the
  * 4-byte-id framing copy; the disk is never re-read per recipient.
  * Recipients may start at different offsets (resume), so a chunk is only
@@ -1382,7 +1382,7 @@ export async function sendFileToManagers(
       // The File object went stale (edited or removed on disk). Nothing sane
       // can be sent from here; fail every remaining copy.
       for (const handle of active) {
-        handle.fail("Could not read the file — it may have changed on disk");
+        handle.fail("Could not read the file - it may have changed on disk");
       }
       return;
     }

@@ -4,7 +4,7 @@ import { isValidRoomId, normalizeRoomId } from "@/lib/ids";
  * Turns whatever a camera decoded into a room id, or null.
  *
  * A QR code is untrusted input: it can encode any string at all, including a
- * URL to an attacker's site. So this never returns something navigable — only a
+ * URL to an attacker's site. So this never returns something navigable - only a
  * validated room id, which the caller routes to internally. Nothing here is
  * ever fed to `location.assign` or an anchor href.
  *

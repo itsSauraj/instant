@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 // next.config.ts is evaluated by `next dev` (NODE_ENV=development) and
 // `next build`/`next start` (NODE_ENV=production), so branching here yields a
-// static header per build — there is no per-request nonce with this approach.
+// static header per build - there is no per-request nonce with this approach.
 const isDev = process.env.NODE_ENV !== "production";
 
 const contentSecurityPolicy = [
@@ -24,7 +24,7 @@ const contentSecurityPolicy = [
   // robohash.org: generated participant avatars (components/room/presence.tsx).
   "img-src 'self' blob: data: https://robohash.org",
   // blob:: received audio/video files played from object URLs. mediastream::
-  // live camera/screen streams if ever attached by URL — the app attaches them
+  // live camera/screen streams if ever attached by URL - the app attaches them
   // via srcObject, which CSP does not consult, so this is belt-and-braces.
   "media-src 'self' blob: mediastream:",
   // next/font self-hosts Geist under /_next/static/media; no external origin.

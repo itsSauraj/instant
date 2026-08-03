@@ -5,7 +5,7 @@ import { useSyncExternalStore } from "react";
 /**
  * A minimal toast store, shaped like lib/peer-session.ts: a module-level
  * external store read through useSyncExternalStore. `pushToast` is therefore
- * callable from anywhere — event handlers, the session store, other hooks —
+ * callable from anywhere - event handlers, the session store, other hooks -
  * without a context provider in the way.
  */
 
