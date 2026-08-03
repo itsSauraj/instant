@@ -28,6 +28,7 @@
 import {
   ROOM_URL,
   SCREENSHOT_DIR,
+  askToJoinButton,
   clickUntilUrlChanges,
   closeRoomAsHost,
   createRoomAsHost,
@@ -36,6 +37,7 @@ import {
   knockAndAdmit,
   launchMeshBrowser,
   makeChecker,
+  nameGateField,
   newParticipant,
   openNotes,
   parseCliArgs,
@@ -106,13 +108,28 @@ async function expectFreshRoom(peer, label) {
   return true;
 }
 
-/** Clicks "New session" on the terminal screen and verifies the fresh room. */
+/**
+ * Clicks "New session" on the terminal screen and verifies the fresh room.
+ *
+ * NOTE the terminal screen's "New session" routes to a brand-new room WITHOUT
+ * the home page's one-shot creator marker, so the creator lands on their own
+ * name gate (prefilled) and must submit it once; the server then seats them
+ * as the first joiner, i.e. the host. This helper drives that extra step.
+ */
 async function newSessionFromTerminal(peer, label) {
   const button = peer.page.getByRole("button", { name: /new session/i });
   await button.waitFor({ timeout: 15_000 });
   const newUrl = await clickUntilUrlChanges(peer.page, button, { attempts: 10 });
   check(`${label}: New session navigates to a fresh room URL`, ROOM_URL.test(newUrl), newUrl);
   const ok = await expectFreshRoom(peer, label);
+
+  // Pass the gate so the creator actually takes the host seat of their room.
+  const gate = nameGateField(peer.page);
+  if (await gate.isVisible().catch(() => false)) {
+    await gate.fill(peer.name).catch(() => {});
+    await askToJoinButton(peer.page).click({ timeout: 3000 }).catch(() => {});
+  }
+  await waitForRosterName(peer.page, peer.name, { timeout: 20_000 });
   return { url: newUrl, ok };
 }
 

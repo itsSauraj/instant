@@ -17,6 +17,7 @@ import {
   MOBILE_VIEWPORT,
   SCREENSHOT_DIR,
   askToJoinButton,
+  closeParticipantsIfOpen,
   closeRoomAsHost,
   containsSpuriousError,
   createRoomAsHost,
@@ -44,13 +45,20 @@ const { check, skip, state } = makeChecker();
 
 const browser = await launchMeshBrowser({ headed: HEADED });
 
-/** Tab labels collapse on small screens ("Audio & video" renders as "A/V"). */
+/** Tab labels collapse on small screens ("Audio & video" renders as "A/V").
+ * Clicking first clears the participants panel's scrim, which otherwise
+ * swallows the click. */
 const TAB_NAMES = {
   notes: /notes/i,
   files: /files/i,
   media: /audio & video|a\/v/i,
 };
-const tab = (page, key) => page.getByRole("tab", { name: TAB_NAMES[key] ?? key }).first();
+const tab = (page, key) => ({
+  async click() {
+    await closeParticipantsIfOpen(page);
+    await page.getByRole("tab", { name: TAB_NAMES[key] ?? key }).first().click();
+  },
+});
 
 const isDark = (page) =>
   page.evaluate(() => document.documentElement.classList.contains("dark"));
@@ -141,8 +149,21 @@ async function run() {
   await tab(a.page, "notes").click();
   await tab(b.page, "notes").click();
 
-  await a.page.getByLabel("Note", { exact: true }).fill("hello from Ada");
-  await a.page.getByRole("button", { name: /send note/i }).click();
+  // Fill-and-click as one retried unit: a dev-server Fast Refresh between the
+  // two steps resets the composer state and leaves Send disabled.
+  {
+    const composer = a.page.getByLabel("Note", { exact: true });
+    const send = a.page.getByRole("button", { name: /send note/i });
+    let sent = false;
+    for (let attempt = 0; attempt < 5 && !sent; attempt += 1) {
+      await composer.fill("hello from Ada");
+      sent = await send
+        .click({ timeout: 4000 })
+        .then(() => true)
+        .catch(() => false);
+    }
+    if (!sent) throw new Error("Send note button never became clickable");
+  }
   await b.page.getByText("hello from Ada").waitFor({ timeout: 10_000 });
   check("A's note arrives at B", true);
 

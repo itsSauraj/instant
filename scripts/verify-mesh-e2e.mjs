@@ -20,6 +20,7 @@ import {
   SCREENSHOT_DIR,
   admitButton,
   askToJoinButton,
+  closeParticipantsIfOpen,
   closeRoomAsHost,
   containsSpuriousError,
   describesDeliberateClose,
@@ -72,8 +73,12 @@ async function noteItemText(page, text) {
   const node = page.getByText(text).first();
   await node.waitFor({ timeout: 15_000 });
   const bubbleText = await node.evaluate((el) => {
-    const bubble = el.closest('[data-slot="note"], [data-note], li, article, div');
-    return (bubble ?? el).innerText ?? el.textContent ?? "";
+    // `closest` starts at the element ITSELF, and getByText resolves to the
+    // innermost match -- the markdown paragraph -- which trivially satisfies a
+    // bare `div` selector. So it returned the paragraph and never reached the
+    // author label sitting beside it. Require the explicit bubble hook.
+    const bubble = el.closest('[data-slot="note"]');
+    return (bubble ?? el.parentElement ?? el).innerText ?? el.textContent ?? "";
   });
   return bubbleText.replace(/\s+/g, " ").trim();
 }
@@ -201,7 +206,9 @@ async function runMesh(count, prefix, viewport) {
     console.log(`\n${prefix}: a note from one peer reaches ALL others, attributed`);
     for (const participant of participants) await openNotes(participant.page);
 
-    const noteText = `hello everyone from ${guests[0].name} (${prefix})`;
+    // Deliberately does NOT contain the sender's name, so the attribution
+    // check can only pass if the UI itself labels the note with its author.
+    const noteText = `fanout probe from seat two (${prefix})`;
     await sendNote(guests[0].page, noteText);
     for (const participant of participants) {
       if (participant === guests[0]) continue;
@@ -209,7 +216,7 @@ async function runMesh(count, prefix, viewport) {
       check(
         `${prefix}: ${participant.name} received the note attributed to ${guests[0].name}`,
         item.includes(guests[0].name),
-        item.slice(0, 160),
+        `bubble text: ${item.slice(0, 160)}`,
       );
     }
     await shot(host.page, `${prefix}-04-notes-fanout.png`);
@@ -219,6 +226,7 @@ async function runMesh(count, prefix, viewport) {
     const leaver = guests[guests.length - 1];
     const remaining = participants.filter((p) => p !== leaver);
 
+    await closeParticipantsIfOpen(leaver.page);
     const leave = leaveButton(leaver.page);
     await leave.waitFor({ timeout: 15_000 });
     await leave.click();

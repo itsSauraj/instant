@@ -183,10 +183,21 @@ export async function fillNameIfAsked(page, name) {
     page.getByPlaceholder(/name/i).first(),
   ];
   for (const input of candidates) {
-    if (await input.isVisible().catch(() => false)) {
+    if (!(await input.isVisible().catch(() => false))) continue;
+
+    // Verify-and-refill rather than a single fill. The home page prefills the
+    // remembered name in a post-mount effect, so a fill that lands before
+    // hydration is overwritten by that effect -- and because the effect resets
+    // the value, the fill's select-all no longer applies and the next attempt
+    // APPENDS, producing names like "Ann ChowAnn Chow". Confirming the value
+    // afterwards is the only reliable check.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await input.fill("").catch(() => {});
       await input.fill(name).catch(() => {});
-      return true;
+      await page.waitForTimeout(150);
+      if ((await input.inputValue().catch(() => "")) === name) return true;
     }
+    return true;
   }
   return false;
 }
@@ -256,14 +267,18 @@ export async function joinAsGuest(page, roomUrl, name) {
   if (page.url() !== roomUrl) await page.goto(roomUrl);
   const field = nameGateField(page);
   await field.waitFor({ timeout: 20_000 });
-  await field.fill(name);
   const ask = askToJoinButton(page);
-  const knocked = await clickUntil(
-    ask,
-    async () => waitingForApproval(page).isVisible().catch(() => false),
-    { attempts: 12, delay: 400 },
-  );
-  if (!knocked) throw new Error(`"Ask to join" never produced the waiting screen for ${name}`);
+  // Fill and click as one retried unit: a Fast Refresh between the two steps
+  // resets the gate's state and the submit would be refused as empty.
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    if (await field.isVisible().catch(() => false)) {
+      await field.fill(name).catch(() => {});
+      await ask.click({ timeout: 2000 }).catch(() => {});
+    }
+    if (await waitingForApproval(page).isVisible().catch(() => false)) return;
+    await wait(400);
+  }
+  throw new Error(`"Ask to join" never produced the waiting screen for ${name}`);
 }
 
 /**
@@ -332,8 +347,27 @@ export async function rosterSnapshot(page) {
     return null;
   }
   const text = (await panel.innerText().catch(() => "")).replace(/\s+/g, " ").trim();
-  await closeParticipants(page).click({ timeout: 2000 }).catch(() => {});
+  await closeParticipantsIfOpen(page);
   return text || null;
+}
+
+/**
+ * Makes sure the participants side panel is closed. A lingering panel covers
+ * the right of the page and swallows clicks aimed at what is underneath.
+ */
+export async function closeParticipantsIfOpen(page) {
+  const panel = participantsPanel(page);
+  if (!(await panel.isVisible().catch(() => false))) return;
+  await closeParticipants(page).click({ timeout: 1500 }).catch(() => {});
+  if (await panel.isVisible().catch(() => false)) {
+    await page.keyboard.press("Escape").catch(() => {});
+  }
+  if (await panel.isVisible().catch(() => false)) {
+    // The panel ships a click-anywhere-to-close scrim; use it as a last resort.
+    const viewport = page.viewportSize() ?? { width: 1280, height: 800 };
+    await page.mouse.click(8, Math.floor(viewport.height / 2)).catch(() => {});
+  }
+  await panel.waitFor({ state: "hidden", timeout: 3000 }).catch(() => {});
 }
 
 export async function rosterText(page) {
@@ -437,10 +471,11 @@ export const leaveButton = (page) => page.getByRole("button", { name: /leave/i }
  * everyone" -> the confirmation dialog's "Close for everyone".
  */
 export async function closeRoomAsHost(host, { timeout = 20_000 } = {}) {
+  await closeParticipantsIfOpen(host.page);
   const trigger = closeButton(host.page);
   if (!(await trigger.isVisible().catch(() => false))) await openSettings(host.page);
   await trigger.waitFor({ timeout });
-  await trigger.click();
+  await trigger.click({ timeout: 10_000 });
   const confirm = host.page
     .getByRole("button", { name: /close for everyone|end for everyone|^confirm$|^yes$/i })
     .last();
@@ -450,14 +485,20 @@ export async function closeRoomAsHost(host, { timeout = 20_000 } = {}) {
   }
 }
 
+/** Activates a rail tab and verifies it actually took (a single click can be
+ * swallowed mid-hydration or land on an animating node). */
+export async function activateTab(page, namePattern) {
+  const tab = page.getByRole("tab", { name: namePattern }).first();
+  if (!(await tab.isVisible().catch(() => false))) return false;
+  return clickUntil(tab, async () => (await tab.getAttribute("aria-selected")) === "true", {
+    attempts: 10,
+    delay: 300,
+  });
+}
+
 /** Opens the Settings rail tab, where the host controls live. */
 export async function openSettings(page) {
-  const tab = page.getByRole("tab", { name: /settings/i }).first();
-  if (await tab.isVisible().catch(() => false)) {
-    await tab.click({ timeout: 2000 }).catch(() => {});
-    return true;
-  }
-  return false;
+  return activateTab(page, /settings/i);
 }
 
 /**
@@ -466,10 +507,9 @@ export async function openSettings(page) {
  * the display reads "N of 7" and only moves once the server ratifies the
  * change, so this waits between clicks.
  */
-export async function ensureCapacity(host, target, { timeout = 20_000 } = {}) {
+export async function ensureCapacity(host, target, { timeout = 25_000 } = {}) {
   const group = host.page.locator('[role="group"][aria-label="Participant limit" i]').first();
-  if (!(await group.isVisible().catch(() => false))) await openSettings(host.page);
-  await group.waitFor({ timeout });
+  await closeParticipantsIfOpen(host.page);
   const read = async () => {
     const text = (await group.innerText().catch(() => "")).replace(/\s+/g, " ");
     const match = /(\d+)\s*of\s*\d+/.exec(text);
@@ -483,8 +523,13 @@ export async function ensureCapacity(host, target, { timeout = 20_000 } = {}) {
     if (Date.now() > deadline) {
       throw new Error(`capacity display never reached ${target} (currently ${current})`);
     }
+    // The stepper lives in the Settings tab; keep steering back to it, since
+    // innerText reads through a hidden panel but clicks need it active.
+    if (!(await raise.isVisible().catch(() => false))) {
+      await openSettings(host.page);
+    }
     await raise.click({ timeout: 2000 }).catch(() => {});
-    await wait(350);
+    await wait(400);
   }
 }
 export const closeButton = (page) =>
@@ -492,13 +537,12 @@ export const closeButton = (page) =>
 
 /** Notes helpers (labels carried over from the existing panels). */
 export async function openNotes(page) {
-  const notesTab = page.getByRole("tab", { name: /notes/i }).first();
-  if (await notesTab.isVisible().catch(() => false)) {
-    await notesTab.click().catch(() => {});
-  }
+  await closeParticipantsIfOpen(page);
+  await activateTab(page, /notes/i);
 }
 
 export async function sendNote(page, text) {
+  await closeParticipantsIfOpen(page);
   const input = page.getByLabel("Note", { exact: true });
   await input.fill(text);
   await input.press("Enter");

@@ -748,16 +748,18 @@ async function main() {
       const { createSinkProvider } = window.__instantDownloadSink;
       const provider = createSinkProvider();
       window.__cancelOutcome = null;
+      window.__cancelTier = null;
       window.__cancelRun = (async () => {
         const size = 512 * 1024 * 1024; // never finishes; cancellation ends it
-        const sink = await provider.open({
-          name: "sw-cancel.bin",
-          mime: "application/octet-stream",
-          expectedBytes: size,
-          transferId: "sw-2",
-        });
         const chunk = new Uint8Array(64 * 1024);
         try {
+          const sink = await provider.open({
+            name: "sw-cancel.bin",
+            mime: "application/octet-stream",
+            expectedBytes: size,
+            transferId: "sw-2",
+          });
+          window.__cancelTier = sink.tier;
           for (let offset = 0; offset < size; offset += chunk.length) {
             await sink.write(chunk);
           }
@@ -776,6 +778,12 @@ async function main() {
       if (cancelOutcome) break;
       await wait(500);
     }
+    const cancelTier = await ctxA.page.evaluate(() => window.__cancelTier);
+    check(
+      'the second download also went through the "download" tier',
+      cancelTier === "download",
+      String(cancelTier),
+    );
     check(
       "cancelling the download makes write() reject instead of hanging",
       typeof cancelOutcome === "string" && cancelOutcome.startsWith("rejected:"),

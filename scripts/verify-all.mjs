@@ -28,6 +28,11 @@ const SUITES = [
   "verify-recreate.mjs", //         recreate-after-close regression
   "verify-scan.mjs", //             QR camera-scan join path
   "verify-extras.mjs", //           QR invite, sound engine, toasts, title alert
+  "verify-download-tiers.mjs", //   folder / service-worker / memory sinks, pickers
+  "verify-transfer-resume.mjs", //  per-recipient targeting and resumable transfers
+  "verify-video-grid.mjs", //       stage+strip layout, pinning, host moderation
+  "verify-host-handover.mjs", //     clean close without a false error; host transfer
+  "verify-end-session.mjs", //       close-for-everyone vs leave-with-successor
 ];
 
 const COUNT_LINE = /^\s{2}(PASS|FAIL|SKIP)\s{2}/;

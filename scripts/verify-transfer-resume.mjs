@@ -264,6 +264,34 @@ async function preReloadProgress(page) {
   });
 }
 
+/** Marks the CURRENT document so a later wait can tell it was replaced. */
+async function markDocument(page) {
+  await page.evaluate(() => {
+    window.__verifyPreReloadDoc = true;
+  });
+}
+
+/** Waits until the marked document is gone (reload happened) AND the fresh
+ *  session reports connected again. */
+async function waitReloadedAndConnected(page, { timeout = 120_000 } = {}) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const state = await page
+      .evaluate(() => ({
+        oldDoc: Boolean(window.__verifyPreReloadDoc),
+        phase: window.__instantMeshSession
+          ? window.__instantMeshSession.getSnapshot().phase
+          : null,
+      }))
+      .catch(() => null);
+    if (state && !state.oldDoc && state.phase === "connected") return;
+    if (Date.now() > deadline) {
+      throw new Error(`page never reloaded+reconnected: ${JSON.stringify(state)}`);
+    }
+    await wait(200);
+  }
+}
+
 /** Opens the Files tab and feeds the hidden input a real file from disk. */
 async function pickFiles(page, filePath) {
   const tab = page.getByRole("tab", { name: /files/i }).first();
@@ -517,14 +545,12 @@ async function scenarioBC(browser, base, check, skip, trackErrors) {
     await waitForConnected(guest.page);
 
     check("sender reload trigger armed", await armMidflightReload(host.page, "outgoing", 12 * MiB));
+    await markDocument(host.page);
     await pickFiles(host.page, fileB.file);
 
-    // The sender's page reloads itself mid-send; wait for it to reclaim the
-    // seat and reconnect.
-    await waitMesh(host.page, (s) => s.phase === "connected", {
-      timeout: 120_000,
-      label: "sender back after reload",
-    });
+    // The sender's page reloads itself mid-send; wait for the NEW document to
+    // reclaim the seat and reconnect (the marker proves the reload happened).
+    await waitReloadedAndConnected(host.page, { timeout: 120_000 });
 
     // Honest failure, receiver side: a resumable partial row, no fake 0%.
     const partialSnap = await waitMesh(
@@ -620,11 +646,9 @@ async function scenarioBC(browser, base, check, skip, trackErrors) {
     await utimes(twin2.file, now, now);
 
     check("second sender reload trigger armed", await armMidflightReload(host.page, "outgoing", 12 * MiB));
+    await markDocument(host.page);
     await pickFiles(host.page, twin1.file);
-    await waitMesh(host.page, (s) => s.phase === "connected", {
-      timeout: 120_000,
-      label: "sender back after second reload",
-    });
+    await waitReloadedAndConnected(host.page, { timeout: 120_000 });
     await waitMesh(
       guest.page,
       (s) => s.transfers.some((t) => t.key.startsWith("partial:") && t.name === "twin.bin"),
@@ -735,11 +759,12 @@ async function scenarioD(browser, base, check, skip, trackErrors) {
       Blob.prototype.arrayBuffer = window.__origArrayBuffer;
       return reads;
     });
-    const expectedChunks = (4 * MiB) / (16 * 1024); // 256
+    // The engine reads in 8 MiB spans, so a 4 MiB file to TWO recipients must
+    // hit the disk exactly ONCE in total, not once per recipient.
     check(
-      "fan-out reads the file once per chunk, not once per recipient",
-      blobReads >= expectedChunks && blobReads <= expectedChunks + 16,
-      `chunk reads=${blobReads}, chunks=${expectedChunks}, recipients=2`,
+      "fan-out reads the file from disk once in total, not once per recipient",
+      blobReads === 1,
+      `disk reads=${blobReads}, recipients=2`,
     );
     for (const [label, p] of [["gus", gus], ["gia", gia]]) {
       const got = await waitMesh(
@@ -776,6 +801,48 @@ async function scenarioD(browser, base, check, skip, trackErrors) {
       "simultaneous same-name transfers do not collide (both byte-identical)",
       shas.size === 2 && shas.has(shaGus) && shas.has(shaGia),
       `got ${[...shas].join(", ")}`,
+    );
+
+    // ---- moderation transport smoke (behaviour suite lives with the video
+    // grid lane; this only proves the wiring does not crash and seq moves) ---
+    const readModeration = () =>
+      gus.page.evaluate(() => {
+        const mod = window.__instantMeshSession.getSnapshot().moderation;
+        return mod ? { seq: mod.seq, action: mod.action, byName: mod.byName } : null;
+      });
+    const waitModeration = async (predicate, timeout = 15_000) => {
+      const deadline = Date.now() + timeout;
+      for (;;) {
+        const m = await readModeration();
+        if (m && predicate(m)) return m;
+        if (Date.now() > deadline) return null;
+        await wait(200);
+      }
+    };
+    // Gus's mic is off, so this enforced mute must be a no-op that still lands.
+    await host.page.evaluate(
+      (id) => window.__instantMeshSession.moderate(id, "mute-audio"),
+      gusId,
+    );
+    const first = await waitModeration((m) => m.action === "mute-audio");
+    // The SAME action again: seq must still increase (UI dedupes on it).
+    if (first) {
+      await host.page.evaluate(
+        (id) => window.__instantMeshSession.moderate(id, "mute-audio"),
+        gusId,
+      );
+    }
+    const second = first ? await waitModeration((m) => m.seq > first.seq) : null;
+    check(
+      "moderation transport: enforced mute on an off device is a no-op that still bumps seq",
+      first !== null && second !== null && second.action === "mute-audio",
+      JSON.stringify({ first, second }),
+    );
+    const gusAlive = await meshSnapshot(gus.page);
+    check(
+      "moderation events do not disturb the session or its transfers",
+      gusAlive.phase === "connected" &&
+        gusAlive.transfers.some((t) => t.name === "fan-out.bin" && t.status === "complete"),
     );
   } finally {
     await host.context.close().catch(() => {});

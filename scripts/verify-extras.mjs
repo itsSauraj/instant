@@ -173,7 +173,18 @@ async function run() {
   await page.goto(BASE, { waitUntil: "domcontentloaded" });
   // The Next dev-tools indicator (<nextjs-portal>) floats above the page and
   // intercepts clicks aimed at harness elements; it is not part of the app.
-  await page.evaluate(() => document.querySelector("nextjs-portal")?.remove());
+  // It also RE-APPEARS whenever the dev server recompiles mid-run, so keep
+  // zapping it rather than removing it once.
+  await page.evaluate(() => {
+    const zap = () => {
+      for (const portal of document.querySelectorAll("nextjs-portal")) portal.remove();
+    };
+    zap();
+    new MutationObserver(zap).observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+    });
+  });
   await page.addScriptTag({ path: path.join(ROOT, "node_modules", "jsqr", "dist", "jsQR.js") });
   await page.addScriptTag({ content: bundle });
   await page.waitForFunction(() => window.__harnessReady === true, undefined, { timeout: 10_000 });
