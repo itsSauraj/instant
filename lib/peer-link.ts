@@ -150,6 +150,9 @@ export class PeerLink {
   private iceRestarted = false;
   private iceTimer: ReturnType<typeof setTimeout> | null = null;
   private closeGrace: ReturnType<typeof setTimeout> | null = null;
+  /** A channel raised `error` during the current grace wait. Only if the wait
+   *  expires unexplained is it worth telling the user about. */
+  private sawChannelError = false;
   /** Watches for a negotiation that never completes. See armNegotiationWatchdog. */
   private negotiationTimer: ReturnType<typeof setTimeout> | null = null;
   private negotiationAttempts = 0;
@@ -445,24 +448,29 @@ export class PeerLink {
       }
     });
 
+    // The channel dying is terminal for this link either way, but the events
+    // do not say *why*. A peer that pressed Leave (or was removed, or whose
+    // host just closed the room) tears its RTCPeerConnection down while the
+    // authoritative signalling event (`peer-left`, `peer-away`, `ended`) is
+    // still in flight; that event makes the mesh destroy this link, and the
+    // grace timer dies with it, unfired. Only when nothing authoritative
+    // arrives do we conclude the connection actually dropped.
+    //
+    // `error` is handled through the SAME grace wait as `close`, not reported
+    // on the spot: a deliberate remote pc.close() raises `error` on the
+    // channels it kills, and it fires BEFORE `close` -- so any guard keyed on
+    // the close handler having already run can never catch it. Report the
+    // error only if the grace expires unexplained; that keeps a genuine
+    // transport failure loud while a clean goodbye stays clean.
     channel.addEventListener("close", () => {
-      if (this.destroyed || this.closeGrace) return;
-
-      // The channel closing is terminal for this link either way, but it does
-      // not say *why*. A peer that pressed Leave (or was removed, or is
-      // reloading) closes its RTCPeerConnection while the authoritative
-      // signalling event is still in flight; that event makes the mesh destroy
-      // this link, and this timer dies with it. Only when nothing
-      // authoritative arrives do we conclude the connection actually dropped.
-      this.closeGrace = setTimeout(() => {
-        this.closeGrace = null;
-        this.fail();
-      }, CLOSE_REASON_GRACE_MS);
+      if (this.destroyed) return;
+      this.armCloseGrace();
     });
 
     channel.addEventListener("error", () => {
       if (this.destroyed) return;
-      this.callbacks.onError("A data channel reported an error.");
+      this.sawChannelError = true;
+      this.armCloseGrace();
     });
   }
 
@@ -666,6 +674,28 @@ export class PeerLink {
   }
 
   // ---------------------------------------------------------------- teardown
+
+  /**
+   * Starts (or joins) the wait for an authoritative reason after a channel
+   * reported `close` or `error`. If the mesh destroys this link first (a
+   * `peer-left`/`peer-away`/`ended` arrived), the timer is cleared in
+   * destroy() and nothing is ever reported. Only an unexplained expiry
+   * surfaces the buffered channel error and declares the link dead.
+   */
+  private armCloseGrace() {
+    if (this.closeGrace) return;
+    this.closeGrace = setTimeout(() => {
+      this.closeGrace = null;
+      if (this.sawChannelError) {
+        this.sawChannelError = false;
+        this.callbacks.onError("A data channel reported an error.");
+      }
+      // An `error` with both channels still open was transient (e.g. a failed
+      // send): worth reporting, not worth tearing a working link down for.
+      if (this.notesOpen && this.filesOpen) return;
+      this.fail();
+    }, CLOSE_REASON_GRACE_MS);
+  }
 
   /** Funnel for every locally-detected death of this link. Fires once. */
   private fail() {

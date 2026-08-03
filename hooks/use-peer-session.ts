@@ -38,6 +38,7 @@ const INITIAL: MeshSnapshot = {
   },
   doc: { text: "", rev: 0, at: 0, mine: false },
   moderation: null,
+  hostChange: null,
   error: null,
   endReason: null,
 };
@@ -190,6 +191,11 @@ export function usePeerSession(roomId: string, displayName = "") {
     (peerId: PeerId | null, action: ModerationAction) => session?.moderate(peerId, action),
     [session],
   );
+  /** Host only: hand the room to another participant and stay as a guest.
+   *  Confirmation arrives as the `hostChange` notification on the snapshot
+   *  (react to it once per `seq`), while `isHost` flips via the authoritative
+   *  roster — the roster, not the notification, is the truth. */
+  const transferHost = useCallback((peerId: PeerId) => session?.transferHost(peerId), [session]);
 
   // An ended session has no streams. The MediaStream objects themselves live
   // for the whole session (tracks are added and removed on them), so without
@@ -256,6 +262,7 @@ export function usePeerSession(roomId: string, displayName = "") {
     removePeer,
     pinPeer,
     moderate,
+    transferHost,
   };
 }
 

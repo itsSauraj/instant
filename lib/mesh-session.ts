@@ -131,6 +131,25 @@ export type MeshSnapshot = {
    *  EVERY event (even two identical actions in a row) so the UI can
    *  de-duplicate without missing a repeat. Null until the first event. */
   moderation: { seq: number; action: ModerationAction; byName: string } | null;
+  /**
+   * Most recent host-change notification, on the same contract as
+   * `moderation`: `seq` increases on EVERY `host-changed` event — repeats
+   * included — so a UI that de-duplicates by `seq` reacts exactly once per
+   * handover and can never swallow a second one. `becameHost` is true only on
+   * the client that just became host; `byChoice` distinguishes a deliberate
+   * handover from automatic succession. Null until the first event.
+   *
+   * This is a NOTIFICATION only. `isHost` (and each participant's host flag)
+   * comes from the authoritative roster; if the two ever disagree, the roster
+   * wins.
+   */
+  hostChange: {
+    seq: number;
+    peerId: PeerId;
+    name: string;
+    becameHost: boolean;
+    byChoice: boolean;
+  } | null;
   error: string | null;
   endReason: EndReason | null;
 };
@@ -237,6 +256,10 @@ export class MeshSession {
   /** Latest host-moderation event aimed at this client; see MeshSnapshot. */
   private moderation: { seq: number; action: ModerationAction; byName: string } | null = null;
   private moderationSeq = 0;
+
+  /** Latest host-change notification; see MeshSnapshot. */
+  private hostChange: MeshSnapshot["hostChange"] = null;
+  private hostChangeSeq = 0;
 
   // --- transfer infrastructure (sinks, resume) -----------------------------
   /** Where received bytes land. Starts as the plain in-memory tier and is
@@ -511,6 +534,7 @@ export class MeshSession {
       },
       doc: this.doc,
       moderation: this.moderation,
+      hostChange: this.hostChange,
       error: this.error,
       endReason: this.endReason,
     };
@@ -636,6 +660,13 @@ export class MeshSession {
 
     this.endReason = reason;
     this.phase = "ended";
+
+    // A deliberate or server-decided ending explains itself; a per-link error
+    // that raced it (the far side's pc.close() raises channel errors moments
+    // before the authoritative `ended`/`peer-left` arrives) must not linger to
+    // be rendered beside that explanation. A transport-error end keeps its
+    // message — there the error IS the explanation.
+    if (reason !== "transport-error") this.error = null;
 
     // A refresh may reclaim the seat only when the session ended by accident.
     // Every deliberate or server-decided ending burns the token, so revisiting
@@ -813,6 +844,25 @@ export class MeshSession {
 
       case "pin": {
         this.pinnedByHost = event.peerId;
+        this.emit();
+        break;
+      }
+
+      case "host-changed": {
+        // Notification only. Host-ness itself (this.isHost, and each roster
+        // entry's flag) is applied exclusively from the authoritative roster
+        // the server emits alongside this event — deriving it here could
+        // disagree with that roster, and the roster must win. `seq` moves on
+        // EVERY event, repeats included, so a UI de-duplicating by `seq` can
+        // never swallow a second handover.
+        this.hostChangeSeq += 1;
+        this.hostChange = {
+          seq: this.hostChangeSeq,
+          peerId: event.peerId,
+          name: event.name,
+          becameHost: event.becameHost,
+          byChoice: event.byChoice,
+        };
         this.emit();
         break;
       }
@@ -1514,5 +1564,21 @@ export class MeshSession {
   moderate(peerId: PeerId | null, action: ModerationAction) {
     if (!this.isHost || this.phase === "ended") return;
     void this.signal?.moderate(peerId, action);
+  }
+
+  /**
+   * Host only: hand the room to `peerId` and stay in it as a guest.
+   *
+   * Nothing is asserted locally. The server is the authority: it emits
+   * `host-changed` to everyone (`becameHost: true` only in the new host's
+   * copy) plus a fresh roster, and `isHost` on every client — this one
+   * included — follows that roster. So a host who transfers and then
+   * `leave()`s cannot re-assert host-ness locally: no code path sets
+   * `isHost` except `welcome` and the roster.
+   */
+  transferHost(peerId: PeerId) {
+    if (!this.isHost || this.phase === "ended") return;
+    if (!this.self || peerId === this.self.id) return;
+    void this.signal?.transferHost(peerId);
   }
 }
