@@ -53,6 +53,7 @@ const TONE_BAR: Record<Strength["tone"], string> = {
  */
 export function ParticipantsPanel({
   open,
+  modal = true,
   onClose,
   self,
   participants,
@@ -64,6 +65,15 @@ export function ParticipantsPanel({
   verification,
 }: {
   open: boolean;
+  /**
+   * Whether to dim and block the room behind the panel.
+   *
+   * True when the host opened it deliberately: the panel is anchored over the
+   * video strip, so without a scrim it silently swallows clicks on the tile
+   * controls underneath. False when it auto-opened for a knock -- blocking the
+   * whole UI because somebody else knocked would be worse than either problem.
+   */
+  modal?: boolean;
   onClose: () => void;
   self: Participant | null;
   participants: MeshParticipant[];
@@ -130,14 +140,16 @@ export function ParticipantsPanel({
         underneath simply appear dead. The scrim makes the modality visible and
         gives a click-anywhere-to-close escape, alongside Escape above.
       */}
-      <div
-        aria-hidden
-        onClick={onClose}
-        className="fixed inset-0 z-30 bg-black/20 backdrop-blur-[1px]"
-      />
+      {modal ? (
+        <div
+          aria-hidden
+          onClick={onClose}
+          className="fixed inset-0 z-30 bg-black/20 backdrop-blur-[1px]"
+        />
+      ) : null}
       <aside
         role="dialog"
-        aria-modal="true"
+        aria-modal={modal || undefined}
         aria-label="Participants"
         className="panel fixed inset-y-0 right-0 z-40 flex w-80 max-w-[85vw] flex-col rounded-none border-l shadow-xl sm:inset-y-3 sm:right-3 sm:rounded-xl sm:border"
       >

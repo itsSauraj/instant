@@ -62,7 +62,9 @@ export function HostPanel({
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <p className="text-muted-foreground min-w-0 flex-1 text-sm">
-          Ending the session disconnects everyone at once.
+          Ending the session disconnects everyone at once. To leave while the session
+          continues for the others, use the End session control in the left rail — it lets
+          you hand hosting to someone first.
         </p>
 
         <AlertDialog>

@@ -216,6 +216,11 @@ function NoteBubble({ note }: { note: Note }) {
   return (
     <div className={cn("flex", note.mine ? "justify-end" : "justify-start")}>
       <div
+        // A stable hook for the whole bubble. Without one, anything walking up
+        // from the message text lands on the markdown paragraph itself and never
+        // sees the author label beside it.
+        data-slot="note"
+        data-author={note.authorName || undefined}
         className={cn(
           "max-w-[min(34rem,85%)] rounded-2xl px-3.5 py-2 text-sm shadow-xs",
           note.mine
@@ -223,6 +228,15 @@ function NoteBubble({ note }: { note: Note }) {
             : "bg-secondary text-secondary-foreground rounded-bl-md",
         )}
       >
+        {/* Name the author on incoming notes. Left/right alignment was enough
+            for a pair, but a room now holds up to seven people and alignment
+            alone cannot say which of six others wrote this. Own notes stay
+            unlabelled -- the right-hand side already means "you". */}
+        {!note.mine && note.authorName ? (
+          <p className="text-muted-foreground mb-0.5 text-[0.7rem] font-semibold">
+            {note.authorName}
+          </p>
+        ) : null}
         <NoteMarkdown text={note.text} />
         <time
           dateTime={new Date(note.at).toISOString()}

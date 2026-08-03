@@ -1,23 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useGSAP } from "@gsap/react";
 import {
   AlertTriangle,
+  Crown,
   FileText,
   FileUp,
   LogOut,
   Settings,
   StickyNote,
   Video,
+  X,
 } from "lucide-react";
 
 import { Brand } from "@/components/brand";
 import { ConnectionStatus } from "@/components/room/connection-status";
 import { DocPanel } from "@/components/room/doc-panel";
 import { EndedOverlay } from "@/components/room/ended-overlay";
+import { EndSessionDialog } from "@/components/room/end-session-dialog";
 import { FilesPanel } from "@/components/room/files-panel";
 import { HostPanel } from "@/components/room/host-panel";
+import { HostTransferDialog } from "@/components/room/host-transfer-dialog";
 import { InviteDialog } from "@/components/room/invite-dialog";
 import { LobbyOverlay } from "@/components/room/lobby-overlay";
 import { MediaPanel } from "@/components/room/media-panel";
@@ -35,14 +39,16 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToastViewport } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { usePeerSession } from "@/hooks/use-peer-session";
+import { usePeerSession, type PeerSessionApi } from "@/hooks/use-peer-session";
 import { usePeerVerification } from "@/hooks/use-peer-verification";
 import { useSessionNotifications } from "@/hooks/use-session-notifications";
 import { useSessionSounds } from "@/hooks/use-session-sounds";
 import { useTitleAlert } from "@/hooks/use-title-alert";
+import { pushToast } from "@/hooks/use-toasts";
 import { revealIn } from "@/lib/animation";
 import { consumeRoomCreated, hasSeatToken } from "@/lib/identity";
 import { prettyRoomId } from "@/lib/ids";
+import type { PeerId } from "@/lib/signal-protocol";
 import { cn } from "@/lib/utils";
 
 type TabKey = "notes" | "files" | "media" | "doc" | "settings";
@@ -55,6 +61,18 @@ const TABS: { key: TabKey; label: string; icon: typeof StickyNote }[] = [
   { key: "files", label: "Files", icon: FileUp },
   { key: "media", label: "Audio & video", icon: Video },
 ];
+
+/** One `host-changed` event; derived from the transport's own snapshot type
+ *  so any drift in the contract becomes a compile error here. `seq` increases
+ *  on EVERY event (repeats included) and is what de-duplication keys on. */
+type HostChangeEvent = NonNullable<PeerSessionApi["hostChange"]>;
+
+/**
+ * How long a leave-with-transfer waits for the server to ratify the handover
+ * before giving up and KEEPING the host in the room. Generous next to a normal
+ * round trip; leaving on a hunch is exactly the stranding case this guards.
+ */
+const HANDOVER_TIMEOUT_MS = 8000;
 
 /**
  * Decides whether this visitor may knock yet.
@@ -99,16 +117,32 @@ function RoomSession({ roomId }: { roomId: string }) {
   const [lobbyDismissed, setLobbyDismissed] = useState(false);
   // Right-hand participants drawer, opened by clicking the presence pill.
   const [participantsOpen, setParticipantsOpen] = useState(false);
+  // Modal only when the host opened it themselves; see the knock effect below.
+  const [participantsModal, setParticipantsModal] = useState(true);
+  const openParticipants = useCallback(() => {
+    setParticipantsModal(true);
+    setParticipantsOpen(true);
+  }, []);
   const scope = useRef<HTMLDivElement>(null);
 
   // Optional emoji verification of each direct link's DTLS keys.
   const verification = usePeerVerification(session.participants, session.getPairFingerprint);
 
-  // A new knock surfaces in the participants panel, so bring it into view.
+  // A knock auto-opens the participants panel, because the admit controls live
+  // there and nothing else can answer one.
+  //
+  // It opens NON-MODAL though. The panel is anchored over the video strip, so
+  // when the host opens it deliberately it gets a scrim -- otherwise it silently
+  // swallows clicks on the tile controls underneath. But a scrim on an
+  // auto-opened panel would let anyone knocking take the host's whole UI
+  // hostage until they dismissed it, which is worse than either problem.
   const knockCount = session.knocks.length;
   const seenKnocks = useRef(0);
   useEffect(() => {
-    if (knockCount > seenKnocks.current) setParticipantsOpen(true);
+    if (knockCount > seenKnocks.current) {
+      setParticipantsOpen(true);
+      setParticipantsModal(false);
+    }
     seenKnocks.current = knockCount;
   }, [knockCount]);
 
@@ -132,6 +166,129 @@ function RoomSession({ roomId }: { roomId: string }) {
   // which removes just them and leaves the room running.
   const selfId = session.self?.id ?? null;
   const hostName = session.participants.find((peer) => peer.isHost)?.name ?? null;
+
+  // ------------------------------------------------------------- host handover
+  const { leaveSession, closeSession, isHost, transferHost, hostChange } = session;
+
+  // The host's End-session entry point (two choices) and its follow-up picker.
+  const [endOpen, setEndOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  // Set between "transfer requested" and "server ratified it"; the leave
+  // happens only on ratification (see below), never on hope.
+  const [handover, setHandover] = useState<{ peerId: PeerId; name: string } | null>(null);
+  // The "you are now the host" banner; dismissible, and cleared by time.
+  const [hostNotice, setHostNotice] = useState<string | null>(null);
+
+  // Exactly one notification per handover: `seq` increases on every event
+  // (repeats included), so a re-rendered identical snapshot never re-fires â€”
+  // the same idiom media-panel.tsx uses for `moderation`.
+  const lastHostChangeSeq = useRef(0);
+  const applyHostChange = useCallback((event: HostChangeEvent) => {
+    if (!Number.isFinite(event.seq) || event.seq === lastHostChangeSeq.current) return;
+    lastHostChangeSeq.current = event.seq;
+    if (!event.becameHost) return;
+    // The new host must be TOLD they now hold the admit/close keys.
+    const description = event.byChoice
+      ? "The previous host handed the session to you. Only you can let people in or close the room now."
+      : "The previous host left, so hosting passed to you. Only you can let people in or close the room now.";
+    pushToast({ title: "You are now the host", description, variant: "info" });
+    setHostNotice(description);
+  }, []);
+
+  useEffect(() => {
+    if (hostChange) applyHostChange(hostChange);
+  }, [hostChange, applyHostChange]);
+
+  // The banner is a reminder, not a modal: it dismisses itself after a while
+  // and the toast has already done the announcing.
+  useEffect(() => {
+    if (!hostNotice) return;
+    const timer = window.setTimeout(() => setHostNotice(null), 15_000);
+    return () => window.clearTimeout(timer);
+  }, [hostNotice]);
+
+  // Dev-only test hook (same convention as media-panel's moderation hooks):
+  // lets the verification suite inject `host-changed` events â€” including
+  // repeats with the same seq â€” before/without the live transport.
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const holder = window as unknown as Record<string, unknown>;
+    holder.__instantHostChangeTest = (event: HostChangeEvent) => applyHostChange(event);
+    return () => {
+      delete holder.__instantHostChangeTest;
+    };
+  }, [applyHostChange]);
+
+  /** Leave-with-transfer, in the only safe order: transfer FIRST, then leave
+   *  once the roster proves the successor really holds the role. Leaving on
+   *  an unratified transfer is exactly the stranding case this feature exists
+   *  to prevent, so a refused/failed transfer keeps the host in the room. */
+  const beginHandover = useCallback(
+    (peerId: PeerId) => {
+      const target = session.participants.find((peer) => peer.id === peerId);
+      if (!target || target.away) {
+        pushToast({
+          title: "Host transfer failed",
+          description: "That person is no longer available, so you are still the host.",
+          variant: "error",
+        });
+        return;
+      }
+      transferHost(peerId);
+      setHandover({ peerId, name: target.name });
+    },
+    [session.participants, transferHost],
+  );
+
+  // Ratification watcher. The roster is authoritative for `isHost`, so the
+  // leave fires only once the chosen peer actually appears as host (the
+  // explicit `hostChange` event is accepted as equivalent proof).
+  useEffect(() => {
+    if (!handover) return;
+    const successor = session.participants.find((peer) => peer.id === handover.peerId);
+    const ratified =
+      successor?.isHost === true ||
+      (hostChange !== null && hostChange.byChoice && hostChange.peerId === handover.peerId);
+    if (ratified) {
+      setHandover(null);
+      setTransferOpen(false);
+      leaveSession();
+      return;
+    }
+    if (!successor) {
+      // The chosen person vanished before the server ratified the handover.
+      setHandover(null);
+      pushToast({
+        title: "Host transfer failed",
+        description: `${handover.name} is no longer in the session, so you are still the host.`,
+        variant: "error",
+      });
+    }
+  }, [handover, session.participants, hostChange, leaveSession]);
+
+  // Give up (but stay!) when no ratification arrives: server refusal is
+  // silent from here, and an unanswered transfer must never turn into a leave.
+  useEffect(() => {
+    if (!handover) return;
+    const timer = window.setTimeout(() => {
+      setHandover(null);
+      pushToast({
+        title: "Host transfer did not complete",
+        description: "You are still the host and still in the session. Nothing changed.",
+        variant: "error",
+      });
+    }, HANDOVER_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [handover]);
+
+  // If the role or the session goes away under an open dialog, close it via
+  // its own open state: unmounting an open Radix dialog can leave the body
+  // scroll/pointer lock behind, which would dead-click the EndedOverlay.
+  useEffect(() => {
+    if (isHost && !ended) return;
+    setEndOpen(false);
+    setTransferOpen(false);
+  }, [isHost, ended]);
 
   // The snapshot keeps `self` separate from the other participants; the roster
   // and the host panel both want one list, sorted by arrival.
@@ -194,7 +351,7 @@ function RoomSession({ roomId }: { roomId: string }) {
                 (peer) => peer.connectionState === "connected" && !peer.away,
               ).length
             }
-            onClick={() => setParticipantsOpen(true)}
+            onClick={openParticipants}
           />
         </span>
 
@@ -203,7 +360,7 @@ function RoomSession({ roomId }: { roomId: string }) {
             participants={roster}
             selfId={selfId}
             pending={session.isHost ? session.knocks.length : 0}
-            onOpenList={() => setParticipantsOpen(true)}
+            onOpenList={openParticipants}
           />
           <InviteDialog roomId={roomId} inviteUrl={inviteUrl} />
           <ConnectionStatus phase={session.phase} peers={session.participants.length} />
@@ -217,6 +374,31 @@ function RoomSession({ roomId }: { roomId: string }) {
         >
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span>{session.error}</span>
+        </div>
+      ) : null}
+
+      {/* Fired once per handover (seq-deduplicated above): the person who just
+          inherited the room must be told, or they never learn they now hold
+          the admit/close keys. The toast announces; this banner lingers. */}
+      {hostNotice && !ended ? (
+        <div
+          role="status"
+          data-slot="host-notice"
+          className="border-success/40 bg-success/10 mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm"
+        >
+          <Crown className="text-success mt-0.5 size-4 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">You are now the host.</span>{" "}
+            <span className="text-muted-foreground">{hostNotice}</span>
+          </span>
+          <button
+            type="button"
+            aria-label="Dismiss host notice"
+            onClick={() => setHostNotice(null)}
+            className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 -m-1 grid size-7 shrink-0 place-items-center rounded-md outline-none focus-visible:ring-[3px]"
+          >
+            <X className="size-4" />
+          </button>
         </div>
       ) : null}
 
@@ -268,22 +450,26 @@ function RoomSession({ roomId }: { roomId: string }) {
           <div className="bg-muted/60 flex flex-col items-center gap-1 rounded-xl border p-1 backdrop-blur">
             <SoundToggle />
             <ThemeToggle />
-            {/* Leaving removes only you; closing the whole session is the
-                host's act and lives in the Settings tab behind confirmation. */}
+            {/* One control, two meanings. For a guest it is a plain leave that
+                removes only them. For the host it opens the choice dialog:
+                leaving (with a successor) and closing are different acts, and
+                a bare "Leave" would hide the difference until too late. */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={session.leaveSession}
+                  onClick={isHost ? () => setEndOpen(true) : leaveSession}
                   disabled={ended}
-                  aria-label="Leave session"
+                  aria-label={isHost ? "End session" : "Leave session"}
                   className="text-destructive hover:text-destructive"
                 >
                   <LogOut />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="right">Leave session</TooltipContent>
+              <TooltipContent side="right">
+                {isHost ? "End session" : "Leave session"}
+              </TooltipContent>
             </Tooltip>
             <span aria-hidden className="bg-border my-0.5 h-px w-5" />
             {/* A second TabsList inside the same Tabs root: the Settings tab
@@ -396,6 +582,7 @@ function RoomSession({ roomId }: { roomId: string }) {
 
       <ParticipantsPanel
         open={participantsOpen}
+        modal={participantsModal}
         onClose={() => setParticipantsOpen(false)}
         self={session.self}
         participants={session.participants}
@@ -422,6 +609,46 @@ function RoomSession({ roomId }: { roomId: string }) {
       {ended ? (
         <EndedOverlay reason={session.endReason} error={session.error} roomId={roomId} />
       ) : null}
+
+      {/* Host only in effect: a guest's rail button leaves directly and can
+          never set these open, so a closed Radix dialog renders NOTHING for
+          them. Kept mounted (rather than gated on isHost/ended) so a dialog
+          that is open when the role or phase flips closes cleanly instead of
+          being unmounted mid-open, which strands Radix's body scroll lock. */}
+      <>
+          <EndSessionDialog
+            open={endOpen}
+            onOpenChange={setEndOpen}
+            othersCount={session.participants.length}
+            onChooseLeave={() => {
+              // The choice is made; the follow-up question (who takes over,
+              // or the honest no-successor path) lives in its own dialog.
+              setEndOpen(false);
+              setTransferOpen(true);
+            }}
+            onCloseForEveryone={() => {
+              setEndOpen(false);
+              closeSession();
+            }}
+          />
+          <HostTransferDialog
+            open={transferOpen}
+            onOpenChange={(next) => {
+              // While a transfer awaits ratification the dialog stays put:
+              // closing it would hide the only progress indicator.
+              if (!handover) setTransferOpen(next);
+            }}
+            participants={session.participants}
+            pendingName={handover?.name ?? null}
+            onTransferAndLeave={beginHandover}
+            onLeaveWithoutTransfer={() => {
+              // Only reachable when there is no eligible successor (alone, or
+              // everyone away); the dialog has already named what this means.
+              setTransferOpen(false);
+              leaveSession();
+            }}
+          />
+      </>
 
       {/* Mounted unconditionally for the host: the live region must exist
           before the first knock arrives or it is not announced. The visible
