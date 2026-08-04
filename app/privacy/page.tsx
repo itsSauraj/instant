@@ -62,9 +62,19 @@ export default function PrivacyPage() {
         <p>
           To find a direct path between browsers, yours contacts public STUN servers
           operated by Google and Twilio. They see your IP address; that is how this
-          technique works, and it is the only third party contact the app makes. If the
-          person hosting this deployment has configured a TURN relay, traffic may pass
+          technique works, and it is the only third-party contact your browser makes. If
+          the person hosting this deployment has configured a TURN relay, traffic may pass
           through it when no direct path exists. It stays encrypted either way.
+        </p>
+      </LegalSection>
+
+      <LegalSection heading="The apps list">
+        <p>
+          The apps grid in the header shows links to other things built by the same author.
+          That list is fetched by this server, not by your browser, so the host serving it
+          never sees your IP address, your session code, or that you visited at all. The
+          list is cached, it never contains anything about you, and the app works normally
+          when it cannot be reached.
         </p>
       </LegalSection>
 

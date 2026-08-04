@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 
+import { AppsLauncher } from "@/components/apps-launcher";
 import { Brand } from "@/components/brand";
 import { ConnectionStatus } from "@/components/room/connection-status";
 import { DocPanel } from "@/components/room/doc-panel";
@@ -356,6 +357,11 @@ function RoomSession({ roomId }: { roomId: string }) {
         </span>
 
         <div data-anim="in" className="ml-auto flex items-center gap-2">
+          {/* Smallest, most recessive treatment, and leftmost in this cluster:
+              the header is already dense and session controls must stay
+              rightmost. It fetches nothing until opened, so a participant who
+              never touches it costs a call nothing. */}
+          <AppsLauncher variant="ghost" size="sm" align="end" placement="bottom" layout="list" />
           <Presence
             participants={roster}
             selfId={selfId}

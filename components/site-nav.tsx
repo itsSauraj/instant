@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AppsLauncher } from "@/components/apps-launcher";
 import { Brand } from "@/components/brand";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -27,10 +28,13 @@ export function SiteNav() {
       <header className="pointer-events-auto mx-auto flex h-14 w-full max-w-3xl items-center rounded-full border bg-card/70 pr-2 pl-4 shadow-soft backdrop-blur-xl sm:pl-5">
         <Brand />
         <nav aria-label="Site" className="ml-auto flex items-center gap-1">
+          <NavLink href="/guide">Guide</NavLink>
           <NavLink href="/privacy">Privacy</NavLink>
           <NavLink href="/terms">Terms</NavLink>
         </nav>
         <span aria-hidden className="bg-border mx-2 hidden h-5 w-px sm:block" />
+        {/* Roomy here, so the full-size grid: this is the site's own chrome. */}
+        <AppsLauncher variant="icon" size="default" align="end" placement="bottom" layout="grid" />
         <ThemeToggle />
       </header>
     </div>
