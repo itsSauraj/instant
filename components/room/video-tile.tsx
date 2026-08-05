@@ -1,7 +1,18 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { Crown, Mic, MicOff, Monitor, Pin, PinOff, Video, VideoOff, Wifi } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Crown,
+  Mic,
+  MicOff,
+  Monitor,
+  Pin,
+  PinOff,
+  Video,
+  VideoOff,
+  VolumeX,
+  Wifi,
+} from "lucide-react";
 
 import { RobotAvatar } from "@/components/room/robot-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -125,6 +136,13 @@ export function VideoTile({
   // An away peer has no live devices and no open stream to receive an ask.
   const showModeration = Boolean(canModerate && onModerate && !isSelf && !participant.away);
 
+  // The browser refused to play this peer's element, so they are inaudible.
+  // Surfaced rather than swallowed: otherwise a sender with their mic on looks
+  // fine to everyone while nobody can hear them.
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const handleBlockedChange = useCallback((blocked: boolean) => setAudioBlocked(blocked), []);
+  const showAudioBlocked = audioBlocked && !isSelf && !audioMuted && audioLive;
+
   return (
     <div
       data-slot="video-tile"
@@ -137,6 +155,19 @@ export function VideoTile({
         className,
       )}
     >
+      {/* Any click retries playback, so the chip is a hint rather than a
+          control -- it must not be the only path, since a keypress works too. */}
+      {showAudioBlocked ? (
+        <Badge
+          variant="warning"
+          data-slot="audio-blocked"
+          className="absolute top-2 left-2 z-10 gap-1"
+        >
+          <VolumeX aria-hidden />
+          Click to hear
+        </Badge>
+      ) : null}
+
       <Surface
         stream={stream}
         version={mediaVersion}
@@ -148,6 +179,7 @@ export function VideoTile({
         muted={isSelf || audioMuted}
         mirrored={mirror && !screenSharing}
         label={isSelf ? undefined : `Live video from ${name}`}
+        onBlockedChange={isSelf ? undefined : handleBlockedChange}
         className={cn(
           "absolute inset-0 size-full object-contain",
           !videoLive && "invisible",
@@ -362,6 +394,7 @@ function Surface({
   mirrored,
   className,
   label,
+  onBlockedChange,
 }: {
   stream: MediaStream | null;
   version: number;
@@ -370,9 +403,13 @@ function Surface({
   className?: string;
   /** Accessible name. Omit for decorative surfaces (the local self-preview). */
   label?: string;
+  /** Reports whether the browser is refusing to play this element. */
+  onBlockedChange?: (blocked: boolean) => void;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
 
+  // Binding is separate from playback so that toggling `muted` retries play
+  // without tearing the stream off the element and re-attaching it.
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -386,14 +423,65 @@ function Surface({
       element.pause();
       return;
     }
-    // Autoplay can be refused before any user gesture; the controls below the
-    // grid are a gesture, so a later toggle recovers it.
-    void element.play().catch(() => {});
 
     return () => {
       element.srcObject = null;
     };
   }, [stream, version]);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element || !stream) return;
+
+    let cancelled = false;
+    let detach = () => {};
+
+    const attempt = () =>
+      element
+        .play()
+        .then(() => true)
+        .catch(() => false);
+
+    void attempt().then((playing) => {
+      if (cancelled) return;
+      if (playing) {
+        onBlockedChange?.(false);
+        return;
+      }
+
+      /*
+       * Autoplay was refused. This is the failure mode that silently kills
+       * audio: an UNMUTED element needs user activation, a muted one does not.
+       * So the local preview always plays while a remote peer's audio never
+       * starts -- and because an audio-only peer shows no picture, nothing looks
+       * broken. The mic is on, permission is granted, and no one can hear them.
+       *
+       * Swallowing the rejection left it dead for the whole session. Retry on
+       * the next interaction anywhere in the document, which is what grants
+       * activation, and tell the tile so it can offer something to click.
+       */
+      onBlockedChange?.(true);
+      const retry = () => {
+        void attempt().then((now) => {
+          if (cancelled || !now) return;
+          onBlockedChange?.(false);
+          detach();
+        });
+      };
+      // Capture phase: a click consumed by a button still grants activation.
+      window.addEventListener("pointerdown", retry, true);
+      window.addEventListener("keydown", retry, true);
+      detach = () => {
+        window.removeEventListener("pointerdown", retry, true);
+        window.removeEventListener("keydown", retry, true);
+      };
+    });
+
+    return () => {
+      cancelled = true;
+      detach();
+    };
+  }, [stream, version, muted, onBlockedChange]);
 
   return (
     <video
