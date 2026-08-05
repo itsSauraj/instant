@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useGSAP } from "@gsap/react";
-import { ArrowRight, FileUp, Lock, StickyNote, Users, Video } from "lucide-react";
+import { ArrowRight, Lock, Users } from "lucide-react";
 
+import { MeshVisual } from "@/components/home/mesh-visual";
 import { NameField } from "@/components/home/name-field";
 import { ScanInvite } from "@/components/home/scan-invite";
 import { Button } from "@/components/ui/button";
@@ -13,24 +14,6 @@ import { Separator } from "@/components/ui/separator";
 import { DURATION, EASE, gsap, prefersReducedMotion, revealIn } from "@/lib/animation";
 import { getStoredName, markRoomCreated, setStoredName } from "@/lib/identity";
 import { createRoomId, isValidRoomId, normalizeRoomId } from "@/lib/ids";
-
-const CAPABILITIES = [
-  {
-    icon: StickyNote,
-    title: "Notes",
-    description: "Type back and forth over a reliable, ordered data channel.",
-  },
-  {
-    icon: FileUp,
-    title: "Files",
-    description: "Drag in anything. Chunked straight to the other browser.",
-  },
-  {
-    icon: Video,
-    title: "Audio & video",
-    description: "Camera, microphone and screen share on the same connection.",
-  },
-] as const;
 
 export function HomeHero() {
   const router = useRouter();
@@ -158,6 +141,12 @@ export function HomeHero() {
         </div>
       </div>
 
+      {/* The page leads with the product itself: a live-looking session,
+          before the form asks anyone to commit to anything. */}
+      <div data-anim="in" className="mx-auto w-full max-w-2xl">
+        <MeshVisual />
+      </div>
+
       <div data-anim="in" className="panel mx-auto w-full max-w-xl p-6 sm:p-7">
         {/* One field serves both flows below it: whichever way you enter a
             room, this is the name the others will see. */}
@@ -224,16 +213,6 @@ export function HomeHero() {
             </p>
           )}
         </form>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-3">
-        {CAPABILITIES.map(({ icon: Icon, title, description }) => (
-          <div key={title} data-anim="in" className="panel p-5">
-            <Icon className="text-primary size-5" />
-            <h2 className="mt-3 text-sm font-semibold">{title}</h2>
-            <p className="text-muted-foreground mt-1 text-sm">{description}</p>
-          </div>
-        ))}
       </div>
 
       <p

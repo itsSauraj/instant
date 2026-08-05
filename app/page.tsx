@@ -1,5 +1,6 @@
 import { Globe } from "lucide-react";
 
+import { FeatureGrid } from "@/components/home/feature-grid";
 import { HomeHero } from "@/components/home/home-hero";
 import { SiteNav } from "@/components/site-nav";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ export default function HomePage() {
     <div className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col px-5 pt-24 pb-5 sm:px-8">
       <SiteNav />
       <HomeHero />
+      <FeatureGrid />
       <footer className="mt-10 border-t border-border/60 pt-5 pb-2">
         <div className="flex items-center justify-between gap-4">
           <div className="space-y-1">
