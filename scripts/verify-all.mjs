@@ -31,6 +31,7 @@ const SUITES = [
   "verify-download-tiers.mjs", //   folder / service-worker / memory sinks, pickers
   "verify-transfer-resume.mjs", //  per-recipient targeting and resumable transfers
   "verify-video-grid.mjs", //       stage+strip layout, pinning, host moderation
+  "verify-audio-playback.mjs", //   remote audio is audible, not merely delivered
   "verify-host-handover.mjs", //     clean close without a false error; host transfer
   "verify-end-session.mjs", //       close-for-everyone vs leave-with-successor
 ];
