@@ -13,8 +13,9 @@ import {
 
 /**
  * One peer-to-peer connection inside the mesh: exactly one RTCPeerConnection,
- * its two data channels, its remote MediaStream, and its own perfect-
- * negotiation state. `MeshSession` owns one PeerLink per remote participant.
+ * its two data channels, its three fixed media slots (mic audio, share audio,
+ * video), its remote MediaStreams, and its own perfect-negotiation state.
+ * `MeshSession` owns one PeerLink per remote participant.
  *
  * A link is deliberately self-contained: it never touches another link's
  * state, and every failure it can detect is reported *upward* through
@@ -23,6 +24,23 @@ import {
  */
 
 export type PeerLinkState = "connecting" | "connected" | "failed" | "closed";
+
+/**
+ * The three fixed media slots every link owns, in the order their transceivers
+ * are created. That order is the wire contract: it becomes the SDP m-line
+ * order, which is symmetric on both peers, so a receiver can name the ROLE of
+ * an incoming track instead of guessing from `track.kind`.
+ */
+export type MediaSlot = "mic" | "shareAudio" | "video";
+
+/** What one peer is actually sending us, per slot. `mic` and `shareAudio` stay
+ *  separate because the app reads them separately: host moderation acts on the
+ *  microphone alone, and desktop audio someone chose to share is not that. */
+export type RemoteMediaState = {
+  micLive: boolean;
+  shareAudioLive: boolean;
+  videoLive: boolean;
+};
 
 /** Matches the shape returned by `videoBudget()` in the wire contract. */
 export type VideoBudget = { height: number; maxBitrateKbps: number; frameRate: number };
@@ -128,8 +146,20 @@ export class PeerLink {
   readonly peerId: PeerId;
   /** Exposed for the dev-only debug handle and ICE stats; do not mutate. */
   readonly connection: RTCPeerConnection;
-  /** All tracks this peer sends us. Stable identity for the link's lifetime. */
+  /**
+   * The peer's microphone and video, the "person" stream a tile renders.
+   * Stable identity for the link's lifetime.
+   *
+   * Shared desktop audio is deliberately NOT in here; it lives in
+   * `remoteShareAudioStream` and needs its own element. A media element fed a
+   * MediaStream renders only the FIRST audio track in Chromium and mixes all of
+   * them in Gecko, so two audio tracks in one stream would be half-silent in
+   * one browser or played twice in the other.
+   */
   readonly remoteStream = new MediaStream();
+  /** The peer's shared desktop/tab audio, alone, for its own audio element.
+   *  Empty whenever they are not sharing audio. */
+  readonly remoteShareAudioStream = new MediaStream();
 
   private readonly initiator: boolean;
   private readonly polite: boolean;
@@ -170,8 +200,15 @@ export class PeerLink {
   private notesChannel: RTCDataChannel | null = null;
   private filesChannel: RTCDataChannel | null = null;
   private files: FileTransferManager | null = null;
-  private audioSender: RTCRtpSender | null = null;
-  private videoSender: RTCRtpSender | null = null;
+  /** The three fixed slots, created once in the constructor and never replaced.
+   *  Every later device toggle is a `replaceTrack` on one of these senders. */
+  private readonly slots: Record<MediaSlot, RTCRtpTransceiver>;
+  /** What this peer currently sends us, by slot; filled in `ontrack`. */
+  private readonly remoteBySlot: Record<MediaSlot, MediaStreamTrack | null> = {
+    mic: null,
+    shareAudio: null,
+    video: null,
+  };
   /** What currently occupies the (single) outgoing video slot. */
   private videoContent: "camera" | "screen" | null = null;
 
@@ -187,10 +224,31 @@ export class PeerLink {
     const pc = new RTCPeerConnection({ iceServers: iceServers(), bundlePolicy: "max-bundle" });
     this.connection = pc;
 
+    // The three slots, created ONCE and in this exact order on both sides of
+    // every pair: microphone audio, shared desktop audio, video. Two things
+    // come out of that:
+    //  - the order becomes the m-line order, which SDP forces to be symmetric,
+    //    so a receiver knows which incoming track is the microphone (see
+    //    slotOf) rather than guessing from track.kind;
+    //  - the senders exist before any device does, so toggling a device is a
+    //    replaceTrack instead of an addTrack, and an addTrack renegotiates
+    //    every pair in the mesh (6 SDP round trips per toggle at 7 people).
+    // `sendrecv` with no track yet is deliberate: it sends nothing, and the
+    // peer's track for that slot arrives muted, which reads correctly as "their
+    // mic is off" without a single packet being sent.
+    const slot: RTCRtpTransceiverInit = { direction: "sendrecv", streams: [this.localStream] };
+    this.slots = {
+      mic: pc.addTransceiver("audio", slot),
+      shareAudio: pc.addTransceiver("audio", slot),
+      video: pc.addTransceiver("video", slot),
+    };
+
     pc.onnegotiationneeded = async () => {
       if (this.destroyed) return;
-      // The initiator always negotiates first (it created the data channels,
-      // so it always has something to offer). The non-initiator holds its own
+      // The initiator always negotiates first. Both sides now have something to
+      // offer from the moment they exist (three slots each, plus the
+      // initiator's data channels), so this guard is what keeps the pair's
+      // setup single-offered. The non-initiator holds its own
       // additions back until that first offer has been applied: per spec the
       // browser re-fires negotiationneeded when the connection returns to
       // stable with un-negotiated changes, so nothing is lost - and the pair's
@@ -217,17 +275,25 @@ export class PeerLink {
 
     pc.ondatachannel = ({ channel }) => this.attachChannel(channel);
 
-    pc.ontrack = ({ track }) => {
+    pc.ontrack = ({ track, transceiver }) => {
       if (this.destroyed) return;
-      this.remoteStream.addTrack(track);
+      // Role first: everything downstream (which stream renders it, whether it
+      // counts as "their mic is live") depends on which slot it arrived in.
+      const role = this.slotOf(transceiver);
+      const stream = role === "shareAudio" ? this.remoteShareAudioStream : this.remoteStream;
+      this.remoteBySlot[role] = track;
+      stream.addTrack(track);
 
       const refresh = () => {
         if (!this.destroyed) this.callbacks.onMediaChange();
       };
+      // A slot emptied by replaceTrack(null) mutes rather than ends, so `mute`
+      // and `unmute` are the events that carry a device being toggled.
       track.addEventListener("mute", refresh);
       track.addEventListener("unmute", refresh);
       track.addEventListener("ended", () => {
-        this.remoteStream.removeTrack(track);
+        if (this.remoteBySlot[role] === track) this.remoteBySlot[role] = null;
+        stream.removeTrack(track);
         refresh();
       });
 
@@ -510,23 +576,63 @@ export class PeerLink {
 
   // ------------------------------------------------------------------- media
 
-  /** Attach/replace/remove the outgoing microphone track. */
-  setAudioTrack(track: MediaStreamTrack | null) {
+  /**
+   * Which slot an incoming track belongs to, by transceiver identity.
+   *
+   * Symmetric by construction: both peers created the same three transceivers
+   * in the same order, so our Nth transceiver of a kind is associated (by
+   * kind, in creation order, per JSEP) with the Nth m-line of that kind in the
+   * peer's SDP - which is the slot they created Nth. Nothing here depends on
+   * the local device state, so both ends resolve the same roles.
+   */
+  private slotOf(transceiver: RTCRtpTransceiver): MediaSlot {
+    if (transceiver === this.slots.mic) return "mic";
+    if (transceiver === this.slots.shareAudio) return "shareAudio";
+    if (transceiver === this.slots.video) return "video";
+    // An extra m-line, from a peer that does not follow this layout. Unknown
+    // audio is attributed to share audio, never to the microphone: a false
+    // "their mic is live" is what offers a host "Mute" for someone already
+    // muted, and removing that is the whole point of the slots.
+    return transceiver.receiver.track.kind === "video" ? "video" : "shareAudio";
+  }
+
+  private static live(track: MediaStreamTrack | null): boolean {
+    return track !== null && !track.muted && track.readyState === "live";
+  }
+
+  /** Per-slot liveness of what this peer sends us. The mesh reports microphone
+   *  and shared desktop audio separately from this. */
+  remoteMedia(): RemoteMediaState {
+    return {
+      micLive: PeerLink.live(this.remoteBySlot.mic),
+      shareAudioLive: PeerLink.live(this.remoteBySlot.shareAudio),
+      videoLive: PeerLink.live(this.remoteBySlot.video),
+    };
+  }
+
+  /** Attach/replace/remove the outgoing microphone (slot 0). */
+  setMicTrack(track: MediaStreamTrack | null) {
+    this.setAudioSlot(this.slots.mic, track);
+  }
+
+  /** Attach/replace/remove the outgoing shared desktop/tab audio (slot 1). */
+  setShareAudioTrack(track: MediaStreamTrack | null) {
+    this.setAudioSlot(this.slots.shareAudio, track);
+  }
+
+  /**
+   * Audio needs nothing but replaceTrack, in both directions. Attaching swaps
+   * the payload with no SDP round trip; `null` stops the RTP flow, and for
+   * audio that is the whole story - the receiver's track goes muted, which is
+   * exactly what its indicator reads. The slot's direction therefore never
+   * changes, so the m-line order every receiver maps roles by is fixed for the
+   * link's life. Video cannot do this; see setVideoTrack.
+   */
+  private setAudioSlot(transceiver: RTCRtpTransceiver, track: MediaStreamTrack | null) {
     if (this.destroyed) return;
-    if (track === null) {
-      if (this.audioSender) {
-        this.removeSender(this.audioSender);
-        this.audioSender = null;
-      }
-      return;
-    }
-    if (this.audioSender) {
-      // replaceTrack, not remove+add: it swaps the payload without an SDP
-      // round trip, so toggling a device does not renegotiate the whole mesh.
-      void this.audioSender.replaceTrack(track);
-      return;
-    }
-    this.audioSender = this.connection.addTrack(track, this.localStream);
+    transceiver.sender.replaceTrack(track).catch(() => {
+      // The sender is stopped (link closing): there is nothing left to send.
+    });
   }
 
   /**
@@ -535,24 +641,34 @@ export class PeerLink {
    * the RTP flow never mutes the receiver's track in Chromium, so the peer
    * would keep rendering a frozen last frame. Removing the sender
    * renegotiates and the peer's track goes muted, which is what drives its
-   * "camera off" UI.
+   * "camera off" UI. The transceiver itself survives removeTrack, so the slot
+   * keeps its place in the m-line order.
    */
   setVideoTrack(track: MediaStreamTrack | null, content: "camera" | "screen" | null) {
     if (this.destroyed) return;
+    const sender = this.slots.video.sender;
+
     if (track === null) {
-      if (this.videoSender) {
-        this.removeSender(this.videoSender);
-        this.videoSender = null;
-      }
       this.videoContent = null;
+      if (sender.track) this.removeSender(sender);
       return;
     }
+
     this.videoContent = content;
-    if (this.videoSender) {
-      void this.videoSender.replaceTrack(track);
-      return;
+    sender.replaceTrack(track).catch(() => {
+      // As above: the link is going away.
+    });
+    // removeTrack left the slot recvonly, and replaceTrack deliberately does
+    // not touch direction, so without this nothing would be sent. A slot that
+    // was never emptied is already sendrecv, which makes the first camera-on of
+    // a session a pure replaceTrack with no renegotiation at all.
+    if (this.slots.video.direction !== "sendrecv") {
+      try {
+        this.slots.video.direction = "sendrecv";
+      } catch {
+        // Transceiver stopped with the connection; nothing to renegotiate.
+      }
     }
-    this.videoSender = this.connection.addTrack(track, this.localStream);
   }
 
   /**
@@ -563,8 +679,10 @@ export class PeerLink {
    * camera that occupied this sender a moment ago.
    */
   applyVideoBudget(budget: VideoBudget) {
-    if (this.destroyed || !this.videoSender) return;
-    const sender = this.videoSender;
+    // An empty slot has nothing to cap: the parameters would be overwritten by
+    // the next setVideoTrack anyway, and the mesh re-applies budgets then.
+    if (this.destroyed || this.videoContent === null) return;
+    const sender = this.slots.video.sender;
 
     // setParameters demands the object last returned by getParameters -
     // building encodings from scratch throws InvalidModificationError.
@@ -748,10 +866,15 @@ export class PeerLink {
     this.notesChannel = null;
     this.filesChannel = null;
 
-    for (const track of this.remoteStream.getTracks()) {
-      track.stop();
-      this.remoteStream.removeTrack(track);
+    for (const stream of [this.remoteStream, this.remoteShareAudioStream]) {
+      for (const track of stream.getTracks()) {
+        track.stop();
+        stream.removeTrack(track);
+      }
     }
+    this.remoteBySlot.mic = null;
+    this.remoteBySlot.shareAudio = null;
+    this.remoteBySlot.video = null;
 
     const pc = this.connection;
     pc.ontrack = null;
@@ -766,8 +889,8 @@ export class PeerLink {
       // Nothing to do; we are discarding it anyway.
     }
 
-    this.audioSender = null;
-    this.videoSender = null;
+    // The slot transceivers died with the connection; only the local view of
+    // what the video slot carried needs clearing.
     this.videoContent = null;
 
     return files;

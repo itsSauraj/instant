@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Crown,
   Mic,
@@ -10,6 +18,7 @@ import {
   PinOff,
   Video,
   VideoOff,
+  Volume2,
   VolumeX,
   Wifi,
 } from "lucide-react";
@@ -18,8 +27,31 @@ import { RobotAvatar } from "@/components/room/robot-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { ModerationAction, Participant } from "@/lib/signal-protocol";
+import type { ModerationAction, Participant, PeerId } from "@/lib/signal-protocol";
 import { cn } from "@/lib/utils";
+
+/**
+ * Which participants' screen shares currently carry the sharer's own device
+ * audio, by peer id.
+ *
+ * It travels by context, not by prop: the state lives in the session snapshot
+ * the media panel already holds, it has to reach EVERY tile (stage and strip
+ * alike), and the layout in between has no stake in audio routing. With no
+ * provider the set is empty, which is the honest default - the absence of the
+ * indicator is never a claim that a share is silent, only that we do not know.
+ */
+const ScreenAudioPeers = createContext<ReadonlySet<PeerId>>(new Set<PeerId>());
+
+/** Wrap the tiles so each one can say whether that share includes its audio. */
+export function ScreenAudioPeersProvider({
+  peerIds,
+  children,
+}: {
+  peerIds: ReadonlySet<PeerId>;
+  children: ReactNode;
+}) {
+  return <ScreenAudioPeers.Provider value={peerIds}>{children}</ScreenAudioPeers.Provider>;
+}
 
 /**
  * One participant's tile: their live video when it flows, otherwise a
@@ -142,6 +174,14 @@ export function VideoTile({
   const [audioBlocked, setAudioBlocked] = useState(false);
   const handleBlockedChange = useCallback((blocked: boolean) => setAudioBlocked(blocked), []);
   const showAudioBlocked = audioBlocked && !isSelf && !audioMuted && audioLive;
+
+  // Whether this person's screen share carries their device audio. Everyone
+  // else needs to see it: the failure mode of desktop-audio sharing is a share
+  // that LOOKS fine and is silent, and nothing on a video track reveals that.
+  const shareHasAudio = useContext(ScreenAudioPeers).has(participant.id);
+  // Audio we can attribute to a share means a share is running, even for a
+  // remote peer (a remote video track alone never says camera versus screen).
+  const sharingScreen = screenSharing || shareHasAudio;
 
   return (
     <div
@@ -363,10 +403,18 @@ export function VideoTile({
             <span className="sr-only">Host</span>
           </span>
         ) : null}
-        {screenSharing ? (
+        {sharingScreen ? (
           <span title="Sharing screen" className="shrink-0">
             <Monitor aria-hidden className="size-3 text-white/85" />
             <span className="sr-only">Sharing screen</span>
+          </span>
+        ) : null}
+        {shareHasAudio ? (
+          // Same indicator idiom as the rest of this row: an icon that is never
+          // alone, always paired with text a screen reader can reach.
+          <span title="Screen audio included" className="shrink-0">
+            <Volume2 aria-hidden className="text-success size-3" />
+            <span className="sr-only">Screen audio included</span>
           </span>
         ) : null}
         {!audioLive ? (

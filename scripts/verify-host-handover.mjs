@@ -13,6 +13,18 @@
  *     (snapshot.hostChange, de-duplicated by seq), seq advances on a REPEAT
  *     handover, a demoted host's host-only calls are inert, and an ex-host
  *     who leave()s ends with isHost === false (no local re-assertion).
+ *  4. UI LEAVE-WITH-TRANSFER: the full End session -> Leave -> pick -> confirm
+ *     flow; the host leaves only after ratification, the successor gets the
+ *     "You are now the host" notice exactly once.
+ *  5. UI TRANSFER-WITHOUT-LEAVING: the host panel's "Transfer hosting" action;
+ *     the ex-host STAYS in the session, loses the host controls (rail button
+ *     flips to a plain Leave, the host panel disappears), gets an honest
+ *     receipt, and the successor is notified exactly once.
+ *  6. LATE RATIFICATION (the reported bug): the transfer-host POST is held
+ *     past the 8s watchdog. The give-up toast must be honest ("not
+ *     confirmed", never "nothing changed"), and when the server ratifies late
+ *     the ex-host is told the truth and stays in the session as a guest
+ *     instead of being stranded with a lie.
  *
  * Usage:  node scripts/verify-host-handover.mjs [baseUrl] [--headed]
  * Default base is http://127.0.0.1:3111 (production). Tests 2 and 3 need the
@@ -24,6 +36,7 @@
  */
 
 import {
+  closeParticipantsIfOpen,
   closeRoomAsHost,
   createRoomAsHost,
   describesDeliberateClose,
@@ -33,8 +46,10 @@ import {
   launchMeshBrowser,
   makeChecker,
   newParticipant,
+  openSettings,
   parseCliArgs,
   shot,
+  terminalOverlay,
   terminalText,
   wait,
   waitForConnected,
@@ -427,6 +442,238 @@ async function testHandover(browser) {
 }
 
 // ---------------------------------------------------------------------------
+// UI drivers for the two handover entry points.
+// ---------------------------------------------------------------------------
+
+/** Polls the page body until `pattern` matches; returns the last body text. */
+async function waitForBodyText(page, pattern, { timeout = 12_000 } = {}) {
+  const deadline = Date.now() + timeout;
+  let body = "";
+  for (;;) {
+    body = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ");
+    if (pattern.test(body)) return { ok: true, body };
+    if (Date.now() > deadline) return { ok: false, body };
+    await wait(200);
+  }
+}
+
+/** Polls until the rail's leave control replaces the host's End session. */
+async function waitForRail(page, { timeout = 8000 } = {}) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    const leave = await page
+      .getByRole("button", { name: "Leave session" })
+      .isVisible()
+      .catch(() => false);
+    const end = await page
+      .getByRole("button", { name: "End session" })
+      .isVisible()
+      .catch(() => false);
+    if (leave && !end) return { leave, end };
+    if (Date.now() > deadline) return { leave, end };
+    await wait(250);
+  }
+}
+
+/** Picks `name` in the successor dropdown (Radix select, label "New host"). */
+async function pickSuccessor(page, name) {
+  await page.getByRole("combobox", { name: "New host" }).click();
+  await page.getByRole("option", { name }).click();
+}
+
+/** End session -> "Leave - the session continues" -> pick -> confirm. */
+async function uiLeaveWithTransfer(host, successorName) {
+  await closeParticipantsIfOpen(host.page);
+  await host.page.getByRole("button", { name: "End session" }).click();
+  await host.page.locator('[data-slot="end-leave-option"]').click();
+  await pickSuccessor(host.page, successorName);
+  await host.page.locator('[data-slot="transfer-confirm"]').click();
+}
+
+/** Settings tab -> "Transfer hosting" -> pick -> confirm. The host stays. */
+async function uiTransferOnly(host, successorName) {
+  await closeParticipantsIfOpen(host.page);
+  await openSettings(host.page);
+  const trigger = host.page.locator('[data-slot="transfer-hosting"]');
+  await trigger.waitFor({ timeout: 10_000 });
+  await trigger.click();
+  await pickSuccessor(host.page, successorName);
+  await host.page.locator('[data-slot="transfer-confirm"]').click();
+}
+
+async function seatPair(browser, names) {
+  const host = await newParticipant(browser, "host", { name: names[0] });
+  const guest = await newParticipant(browser, "guest", { name: names[1] });
+  const roomUrl = await createRoomAsHost(host, base);
+  await knockAndAdmit(host, guest, roomUrl);
+  await waitForMesh(host.page, 1);
+  await waitForMesh(guest.page, 1);
+  return { host, guest, roomUrl };
+}
+
+// ---------------------------------------------------------------------------
+// 4. The full UI leave-with-transfer flow (the reported entry point).
+// ---------------------------------------------------------------------------
+async function testUiLeaveWithTransfer(browser) {
+  console.log("\n[4] UI leave-with-transfer: End session -> Leave -> pick -> confirm");
+  const { host, guest } = await seatPair(browser, ["Ada Prime", "Ben Stays"]);
+  try {
+    await uiLeaveWithTransfer(host, "Ben Stays");
+
+    // The host must actually depart - but only via ratification, so the
+    // terminal screen is the self-left one, not an error.
+    const hostEnd = await terminalText(host.page, { timeout: 15_000 });
+    check(
+      "host leaves once the server ratifies the handover",
+      /you left the session/i.test(hostEnd),
+      hostEnd,
+    );
+
+    const promoted = await waitForSnap(guest.page, (s) => s.isHost === true);
+    check("successor holds host powers via the roster", promoted.ok, describe(promoted.snap));
+    const notice = promoted.snap?.hostChange;
+    check(
+      "successor was told: hostChange { becameHost: true, byChoice: true }",
+      Boolean(notice && notice.becameHost === true && notice.byChoice === true),
+      JSON.stringify(notice),
+    );
+    const banner = await waitForBodyText(guest.page, /you are now the host/i);
+    check("successor sees the 'You are now the host' notice", banner.ok, banner.body.slice(-200));
+    const bannerCount = await guest.page.locator('[data-slot="host-notice"]').count();
+    check("the notice is shown exactly once", bannerCount === 1, `count=${bannerCount}`);
+    await shot(guest.page, "handover-ui-leave-transfer-successor.png");
+  } finally {
+    await closeAll(host, guest);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5. Transfer WITHOUT leaving: the host panel's standalone action.
+// ---------------------------------------------------------------------------
+async function testUiTransferOnly(browser) {
+  console.log("\n[5] UI transfer-without-leaving: Settings -> Transfer hosting");
+  const { host, guest, roomUrl } = await seatPair(browser, ["Hia Host", "Gale Guest"]);
+  try {
+    await uiTransferOnly(host, "Gale Guest");
+
+    // Honest receipt on the ex-host's side, and NO departure.
+    const receipt = await waitForBodyText(host.page, /hosting transferred/i);
+    check("ex-host gets the 'Hosting transferred' receipt", receipt.ok, receipt.body.slice(-200));
+    const overlayShown = await terminalOverlay(host.page).isVisible().catch(() => false);
+    check(
+      "ex-host STAYS in the session (no terminal overlay, same URL)",
+      !overlayShown && host.page.url() === roomUrl,
+      `overlay=${overlayShown} url=${host.page.url()}`,
+    );
+
+    const demoted = await waitForSnap(host.page, (s) => s.isHost === false && s.phase !== "ended");
+    check("ex-host is demoted by the roster but still connected", demoted.ok, describe(demoted.snap));
+
+    // The host controls must be gone: the rail button reads Leave (not End),
+    // and the settings tab no longer offers Transfer hosting. Polled: the
+    // mesh snapshot flips a beat before React repaints the rail.
+    const rail = await waitForRail(host.page);
+    check(
+      "rail control flips from End session to a plain Leave",
+      rail.leave && !rail.end,
+      `leave=${rail.leave} end=${rail.end}`,
+    );
+    await openSettings(host.page);
+    await wait(300);
+    const transferCount = await host.page.locator('[data-slot="transfer-hosting"]').count();
+    check("host panel (Transfer hosting) is gone for the ex-host", transferCount === 0, `count=${transferCount}`);
+
+    // The successor side: powers via roster, notified exactly once.
+    const promoted = await waitForSnap(guest.page, (s) => s.isHost === true);
+    check("successor holds host powers", promoted.ok, describe(promoted.snap));
+    const banner = await waitForBodyText(guest.page, /you are now the host/i);
+    check("successor sees the 'You are now the host' notice", banner.ok, banner.body.slice(-200));
+    await wait(1500);
+    const bannerCount = await guest.page.locator('[data-slot="host-notice"]').count();
+    const seq = (await snap(guest.page))?.hostChange?.seq;
+    check(
+      "the notice fires exactly once (one banner, seq 1)",
+      bannerCount === 1 && (seq === 1 || seq === undefined),
+      `count=${bannerCount} seq=${seq}`,
+    );
+
+    // The room keeps running with both of them in it.
+    const together = await snap(guest.page);
+    check(
+      "both are still in the room after the transfer",
+      together?.participants?.length === 1 && together?.phase !== "ended",
+      describe(together),
+    );
+    await shot(host.page, "handover-transfer-only-exhost.png");
+  } finally {
+    await closeAll(host, guest);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 6. Late ratification: the transfer-host POST outlasts the 8s watchdog.
+//    This is the reported bug: the old code declared "You are still the host
+//    ... Nothing changed", then the late ratification silently demoted the
+//    ex-host with no correction. The fix keeps the give-up honest and
+//    reconciles the late completion out loud.
+// ---------------------------------------------------------------------------
+async function testLateRatification(browser) {
+  console.log("\n[6] late ratification: transfer-host POST held past the watchdog");
+  const { host, guest, roomUrl } = await seatPair(browser, ["Lara Late", "Sam Swift"]);
+  try {
+    // Hold the transfer-host POST for 10s: past the 8s give-up, so the server
+    // ratifies AFTER the client stopped waiting. SSE and everything else
+    // stay untouched.
+    await host.page.route("**/api/signal/**", async (route) => {
+      const request = route.request();
+      if (request.method() === "POST" && (request.postData() ?? "").includes("transfer-host")) {
+        await wait(10_000);
+      }
+      await route.continue();
+    });
+
+    await uiLeaveWithTransfer(host, "Sam Swift");
+
+    // At ~8s: the give-up must be provisional and honest.
+    const giveUp = await waitForBodyText(host.page, /host transfer not confirmed/i, {
+      timeout: 12_000,
+    });
+    check("watchdog toast appears and is provisional ('not confirmed')", giveUp.ok, giveUp.body.slice(-300));
+    check(
+      "the give-up never claims 'Nothing changed'",
+      !/nothing changed/i.test(giveUp.body),
+      giveUp.body.slice(-300),
+    );
+
+    // At ~10s the held POST lands and the server ratifies: the record must be
+    // corrected, and the ex-host must NOT be yanked out of the session.
+    const corrected = await waitForBodyText(host.page, /completed after all/i, { timeout: 10_000 });
+    check("late ratification is reconciled out loud", corrected.ok, corrected.body.slice(-300));
+
+    const demoted = await waitForSnap(host.page, (s) => s.isHost === false && s.phase !== "ended");
+    check(
+      "ex-host is demoted by the roster yet still in the session",
+      demoted.ok,
+      describe(demoted.snap),
+    );
+    const overlayShown = await terminalOverlay(host.page).isVisible().catch(() => false);
+    check(
+      "no silent leave: the ex-host stays on the room URL",
+      !overlayShown && host.page.url() === roomUrl,
+      `overlay=${overlayShown} url=${host.page.url()}`,
+    );
+    const rail = await waitForRail(host.page);
+    check("ex-host's rail control is now a plain Leave", rail.leave && !rail.end, `leave=${rail.leave} end=${rail.end}`);
+
+    const promoted = await waitForSnap(guest.page, (s) => s.isHost === true);
+    check("successor still gains the role from the late transfer", promoted.ok, describe(promoted.snap));
+    await shot(host.page, "handover-late-ratification-exhost.png");
+  } finally {
+    await closeAll(host, guest);
+  }
+}
+
+// ---------------------------------------------------------------------------
 async function main() {
   console.log(`verify-host-handover against ${base}`);
   const browser = await launchMeshBrowser({ headed });
@@ -435,6 +682,9 @@ async function main() {
     await testCleanCloseUnderLag(browser);
     await testGenuineFailure(browser);
     await testHandover(browser);
+    await testUiLeaveWithTransfer(browser);
+    await testUiTransferOnly(browser);
+    await testLateRatification(browser);
   } finally {
     await browser.close().catch(() => {});
   }

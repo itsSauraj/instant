@@ -22,7 +22,7 @@ import { EndedOverlay } from "@/components/room/ended-overlay";
 import { EndSessionDialog } from "@/components/room/end-session-dialog";
 import { FilesPanel } from "@/components/room/files-panel";
 import { HostPanel } from "@/components/room/host-panel";
-import { HostTransferDialog } from "@/components/room/host-transfer-dialog";
+import { HostTransferDialog, type TransferIntent } from "@/components/room/host-transfer-dialog";
 import { InviteDialog } from "@/components/room/invite-dialog";
 import { LobbyOverlay } from "@/components/room/lobby-overlay";
 import { MediaPanel } from "@/components/room/media-panel";
@@ -69,9 +69,13 @@ const TABS: { key: TabKey; label: string; icon: typeof StickyNote }[] = [
 type HostChangeEvent = NonNullable<PeerSessionApi["hostChange"]>;
 
 /**
- * How long a leave-with-transfer waits for the server to ratify the handover
- * before giving up and KEEPING the host in the room. Generous next to a normal
- * round trip; leaving on a hunch is exactly the stranding case this guards.
+ * How long a handover waits for the server to ratify before the pending UI
+ * gives up and KEEPS the host in the room. Generous next to a normal round
+ * trip; leaving on a hunch is exactly the stranding case this guards. The
+ * give-up is provisional, not a verdict: a stalled request can ratify AFTER
+ * this fires (a dev server mid-compile or a throttled tab easily exceeds it),
+ * so a late ratification is still reconciled honestly - see the overdue
+ * watcher below.
  */
 const HANDOVER_TIMEOUT_MS = 8000;
 
@@ -174,9 +178,24 @@ function RoomSession({ roomId }: { roomId: string }) {
   // The host's End-session entry point (two choices) and its follow-up picker.
   const [endOpen, setEndOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
-  // Set between "transfer requested" and "server ratified it"; the leave
-  // happens only on ratification (see below), never on hope.
-  const [handover, setHandover] = useState<{ peerId: PeerId; name: string } | null>(null);
+  // What the open picker is FOR: "leave" hands over then leaves; "stay" hands
+  // over and remains (the host panel's Transfer hosting action). One dialog
+  // serves both, so the intent travels with the open state.
+  const [transferIntent, setTransferIntent] = useState<TransferIntent>("leave");
+  // Set between "transfer requested" and "server ratified it"; the follow-up
+  // (leave, or a stay-put confirmation) happens only on ratification (see
+  // below), never on hope.
+  const [handover, setHandover] = useState<{
+    peerId: PeerId;
+    name: string;
+    intent: TransferIntent;
+  } | null>(null);
+  // The last handover the watchdog gave up on. The server may still ratify it
+  // late; when that lands, the "you are still the host" story told at timeout
+  // must be corrected honestly (the roster demotes this client regardless).
+  const overdueHandover = useRef<{ peerId: PeerId; name: string; intent: TransferIntent } | null>(
+    null,
+  );
   // The "you are now the host" banner; dismissible, and cleared by time.
   const [hostNotice, setHostNotice] = useState<string | null>(null);
 
@@ -220,10 +239,11 @@ function RoomSession({ roomId }: { roomId: string }) {
     };
   }, [applyHostChange]);
 
-  /** Leave-with-transfer, in the only safe order: transfer FIRST, then leave
-   *  once the roster proves the successor really holds the role. Leaving on
-   *  an unratified transfer is exactly the stranding case this feature exists
-   *  to prevent, so a refused/failed transfer keeps the host in the room. */
+  /** A handover, in the only safe order: transfer FIRST, then act (leave, or
+   *  simply stand down) once the roster proves the successor really holds the
+   *  role. Leaving on an unratified transfer is exactly the stranding case
+   *  this feature exists to prevent, so a refused/failed transfer keeps the
+   *  host in the room - and in the role. */
   const beginHandover = useCallback(
     (peerId: PeerId) => {
       const target = session.participants.find((peer) => peer.id === peerId);
@@ -235,14 +255,17 @@ function RoomSession({ roomId }: { roomId: string }) {
         });
         return;
       }
+      // A fresh attempt supersedes any earlier one still awaiting a late
+      // ratification; two overlapping stories would both be wrong.
+      overdueHandover.current = null;
       transferHost(peerId);
-      setHandover({ peerId, name: target.name });
+      setHandover({ peerId, name: target.name, intent: transferIntent });
     },
-    [session.participants, transferHost],
+    [session.participants, transferHost, transferIntent],
   );
 
   // Ratification watcher. The roster is authoritative for `isHost`, so the
-  // leave fires only once the chosen peer actually appears as host (the
+  // follow-up fires only once the chosen peer actually appears as host (the
   // explicit `hostChange` event is accepted as equivalent proof).
   useEffect(() => {
     if (!handover) return;
@@ -253,7 +276,17 @@ function RoomSession({ roomId }: { roomId: string }) {
     if (ratified) {
       setHandover(null);
       setTransferOpen(false);
-      leaveSession();
+      if (handover.intent === "leave") {
+        leaveSession();
+      } else {
+        // Transfer-only: the ex-host stays. Their host controls disappear via
+        // the roster-driven isHost flip; this is the honest receipt for it.
+        pushToast({
+          title: "Hosting transferred",
+          description: `${handover.name} is now the host. You are still in the session as a regular participant.`,
+          variant: "success",
+        });
+      }
       return;
     }
     if (!successor) {
@@ -267,20 +300,52 @@ function RoomSession({ roomId }: { roomId: string }) {
     }
   }, [handover, session.participants, hostChange, leaveSession]);
 
-  // Give up (but stay!) when no ratification arrives: server refusal is
-  // silent from here, and an unanswered transfer must never turn into a leave.
+  // Give up (but stay!) when no ratification arrives in time: server refusal
+  // is silent from here, and an unanswered transfer must never turn into a
+  // leave. The wording is deliberately provisional - "not confirmed", not
+  // "nothing changed" - because a stalled request can still ratify after this
+  // fires; the overdue watcher below owns that correction.
   useEffect(() => {
     if (!handover) return;
     const timer = window.setTimeout(() => {
+      overdueHandover.current = handover;
       setHandover(null);
+      setTransferOpen(false);
       pushToast({
-        title: "Host transfer did not complete",
-        description: "You are still the host and still in the session. Nothing changed.",
+        title: "Host transfer not confirmed",
+        description:
+          "The room did not confirm the handover in time, so for now you are still the host and still in the session. If it does complete late, you will be told here - you will never be taken out of the session without that confirmation.",
         variant: "error",
       });
     }, HANDOVER_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [handover]);
+
+  // Late-ratification reconciliation. The 8s give-up is a guess, and it can
+  // lose the race: a transfer request stalled past the watchdog (slow server,
+  // throttled tab) still ratifies on arrival, and the authoritative roster
+  // then demotes this client whatever the earlier toast said. Correct the
+  // record the moment that happens. Deliberately NO automatic leave here,
+  // even for a leave-intent handover: the user was told they are still the
+  // host and may have re-engaged, so yanking them out seconds or minutes
+  // later would be worse than asking for one more click.
+  useEffect(() => {
+    const overdue = overdueHandover.current;
+    if (!overdue || handover) return;
+    const successor = session.participants.find((peer) => peer.id === overdue.peerId);
+    const ratified =
+      successor?.isHost === true ||
+      (hostChange !== null && hostChange.byChoice && hostChange.peerId === overdue.peerId);
+    if (!ratified) return;
+    overdueHandover.current = null;
+    pushToast({
+      title: "Host transfer completed after all",
+      description:
+        `The confirmation arrived late: ${overdue.name} is now the host. You are still in the session as a regular participant.` +
+        (overdue.intent === "leave" ? " Use the Leave control whenever you want to go." : ""),
+      variant: "info",
+    });
+  }, [handover, session.participants, hostChange]);
 
   // If the role or the session goes away under an open dialog, close it via
   // its own open state: unmounting an open Radix dialog can leave the body
@@ -572,6 +637,12 @@ function RoomSession({ roomId }: { roomId: string }) {
                 capacity={session.capacity}
                 participants={roster}
                 onCapacityChange={session.setCapacity}
+                onTransferHost={() => {
+                  // Transfer-only: the picker opens in "stay" mode, so the
+                  // confirm copy promises exactly what happens - no leave.
+                  setTransferIntent("stay");
+                  setTransferOpen(true);
+                }}
                 onClose={session.closeSession}
                 className="mt-0"
               />
@@ -630,6 +701,7 @@ function RoomSession({ roomId }: { roomId: string }) {
               // The choice is made; the follow-up question (who takes over,
               // or the honest no-successor path) lives in its own dialog.
               setEndOpen(false);
+              setTransferIntent("leave");
               setTransferOpen(true);
             }}
             onCloseForEveryone={() => {
@@ -644,9 +716,10 @@ function RoomSession({ roomId }: { roomId: string }) {
               // closing it would hide the only progress indicator.
               if (!handover) setTransferOpen(next);
             }}
+            intent={transferIntent}
             participants={session.participants}
             pendingName={handover?.name ?? null}
-            onTransferAndLeave={beginHandover}
+            onTransfer={beginHandover}
             onLeaveWithoutTransfer={() => {
               // Only reachable when there is no eligible successor (alone, or
               // everyone away); the dialog has already named what this means.

@@ -31,6 +31,8 @@ const INITIAL: MeshSnapshot = {
     micOn: false,
     cameraOn: false,
     screenOn: false,
+    screenAudioOn: false,
+    screenAudioSupport: "unknown",
     remoteAudioLive: false,
     remoteVideoLive: false,
     byPeer: {},
@@ -171,10 +173,17 @@ export function usePeerSession(roomId: string, displayName = "") {
 
   const toggleMic = useCallback(() => session?.toggleMic() ?? Promise.resolve(), [session]);
   const toggleCamera = useCallback(() => session?.toggleCamera() ?? Promise.resolve(), [session]);
+  /** Starts or stops the screen share. Desktop/tab audio is requested with it
+   *  and included when the platform and the user grant it; `media.screenAudioOn`
+   *  reports whether any actually flowed. Rejects when the picker is dismissed. */
   const toggleScreenShare = useCallback(
     () => session?.toggleScreenShare() ?? Promise.resolve(),
     [session],
   );
+  /** Drop shared desktop audio while the picture keeps flowing. One-way: only a
+   *  fresh screen share can grant display audio again, so do not present this as
+   *  a toggle. */
+  const stopScreenAudio = useCallback(() => session?.stopScreenAudio(), [session]);
 
   // Host controls (the server rejects them from anyone else).
   const admit = useCallback(
@@ -257,6 +266,7 @@ export function usePeerSession(roomId: string, displayName = "") {
     toggleMic,
     toggleCamera,
     toggleScreenShare,
+    stopScreenAudio,
     admit,
     setCapacity,
     removePeer,

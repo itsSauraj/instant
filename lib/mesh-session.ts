@@ -1,3 +1,4 @@
+import { shouldRetryWithoutAudio, type ScreenAudioSupport } from "@/lib/audio-mix";
 import { createSinkProvider } from "@/lib/download-sink";
 import {
   createMemorySinkProvider,
@@ -94,12 +95,38 @@ export type MeshMediaState = {
   micOn: boolean;
   cameraOn: boolean;
   screenOn: boolean;
-  /** True when ANY peer is currently sending live audio/video. These two
-   *  aggregates exist for the sounds/notifications hooks, which edge-detect
-   *  them; per-peer detail lives in `byPeer`. */
+  /**
+   * This client is sending captured desktop/tab audio, in its own slot beside
+   * the microphone. Independent of `micOn` in both directions: desktop audio can
+   * flow with the mic off, and a host mute stops the mic without touching it.
+   */
+  screenAudioOn: boolean;
+  /**
+   * What this browser has shown us about display audio, learned from real
+   * capture attempts rather than guessed from the user agent. Stays "unknown"
+   * when a capture returns video only, because the user leaving the picker's
+   * tick box unticked and a platform quietly ignoring the ask are
+   * indistinguishable from here - so the UI must not claim either.
+   */
+  screenAudioSupport: ScreenAudioSupport;
+  /**
+   * True when ANY peer is currently sending live audio - from either slot,
+   * microphone OR shared desktop audio. These two aggregates exist for the
+   * sounds/notifications hooks, which edge-detect them, and for the incoming-
+   * audio controls; all of those mean "something audible is arriving", which a
+   * shared soundtrack satisfies just as a voice does. Per-peer detail, where
+   * the two sources ARE distinguished, lives in `byPeer`.
+   */
   remoteAudioLive: boolean;
   remoteVideoLive: boolean;
-  byPeer: Record<PeerId, { audioLive: boolean; videoLive: boolean }>;
+  /**
+   * Per peer, per media slot.
+   *  - audioLive is the MICROPHONE alone. Host moderation reads exactly this
+   *    ("Mute Ben" vs "Ask Ben to unmute"), so desktop audio must never leak
+   *    into it: someone sharing a soundtrack with their mic off reads as muted.
+   *  - screenAudioLive is that peer's shared desktop/tab audio.
+   */
+  byPeer: Record<PeerId, { audioLive: boolean; screenAudioLive: boolean; videoLive: boolean }>;
   /** Bumped whenever a track is added or removed so views re-attach srcObject. */
   version: number;
 };
@@ -247,6 +274,12 @@ export class MeshSession {
   private micTrack: MediaStreamTrack | null = null;
   private cameraTrack: MediaStreamTrack | null = null;
   private screenTrack: MediaStreamTrack | null = null;
+  /** Desktop/tab audio from the same getDisplayMedia capture as `screenTrack`.
+   *  Deliberately NOT added to `localStream`: that stream is the self preview,
+   *  which is always muted (hearing your own capture is a feedback loop), and
+   *  an audio track in it would make the self tile's mic reading ambiguous. */
+  private screenAudioTrack: MediaStreamTrack | null = null;
+  private screenAudioSupport: ScreenAudioSupport = "unknown";
   private mediaVersion = 0;
 
   private phase: MeshPhase = "joining";
@@ -344,9 +377,23 @@ export class MeshSession {
 
   getLocalStream = () => this.localStream;
 
-  /** The remote MediaStream for one peer, or null when no link is live. */
+  /** The remote MediaStream for one peer - their microphone and video - or
+   *  null when no link is live. Their shared desktop audio is NOT in it; see
+   *  `getRemoteShareAudioStream`. */
   getRemoteStream = (peerId: PeerId): MediaStream | null =>
     this.links.get(peerId)?.remoteStream ?? null;
+
+  /**
+   * One peer's shared desktop/tab audio, alone, for its own audio element.
+   *
+   * It needs a second element: a media element fed a MediaStream renders only
+   * the FIRST audio track in Chromium (and mixes them all in Gecko), so putting
+   * this beside their microphone in one stream would be silent in one browser
+   * and doubled in the other. `media.byPeer[peerId].screenAudioLive` says
+   * whether there is anything in it right now.
+   */
+  getRemoteShareAudioStream = (peerId: PeerId): MediaStream | null =>
+    this.links.get(peerId)?.remoteShareAudioStream ?? null;
 
   /**
    * The provider the engine actually writes received files through.
@@ -441,14 +488,13 @@ export class MeshSession {
     let remoteAudioLive = false;
     let remoteVideoLive = false;
     for (const [peerId, link] of this.links) {
-      const audioLive = link.remoteStream
-        .getAudioTracks()
-        .some((track) => !track.muted && track.readyState === "live");
-      const videoLive = link.remoteStream
-        .getVideoTracks()
-        .some((track) => !track.muted && track.readyState === "live");
-      byPeer[peerId] = { audioLive, videoLive };
-      remoteAudioLive ||= audioLive;
+      // Straight from the link's fixed slots, so the microphone and a shared
+      // soundtrack are never confused for one another. Guessing from
+      // `remoteStream.getAudioTracks()` is what made a peer sharing desktop
+      // audio with their mic off report as unmuted.
+      const { micLive, shareAudioLive, videoLive } = link.remoteMedia();
+      byPeer[peerId] = { audioLive: micLive, screenAudioLive: shareAudioLive, videoLive };
+      remoteAudioLive ||= micLive || shareAudioLive;
       remoteVideoLive ||= videoLive;
     }
 
@@ -527,6 +573,10 @@ export class MeshSession {
         micOn: Boolean(this.micTrack),
         cameraOn: Boolean(this.cameraTrack),
         screenOn: Boolean(this.screenTrack),
+        // The captured track IS what is sent now (its own slot, no mixing), so
+        // holding one is the whole condition.
+        screenAudioOn: Boolean(this.screenAudioTrack),
+        screenAudioSupport: this.screenAudioSupport,
         remoteAudioLive,
         remoteVideoLive,
         byPeer,
@@ -733,7 +783,12 @@ export class MeshSession {
   }
 
   private stopLocalMedia() {
-    for (const track of [this.micTrack, this.cameraTrack, this.screenTrack]) {
+    for (const track of [
+      this.micTrack,
+      this.cameraTrack,
+      this.screenTrack,
+      this.screenAudioTrack,
+    ]) {
       if (!track) continue;
       track.onended = null;
       track.stop();
@@ -741,6 +796,7 @@ export class MeshSession {
     this.micTrack = null;
     this.cameraTrack = null;
     this.screenTrack = null;
+    this.screenAudioTrack = null;
     for (const track of this.localStream.getTracks()) {
       this.localStream.removeTrack(track);
     }
@@ -880,6 +936,13 @@ export class MeshSession {
         // must never be able to switch someone's microphone or camera ON -
         // the media panel prompts and the user decides.
         if (isEnforced(event.action)) {
+          // "Mute" means the MICROPHONE, and only that. Desktop audio the user
+          // deliberately chose to share is not their microphone, so it keeps
+          // flowing: toggleMic stops the mic capture and calls syncMic, which
+          // touches the mic slot alone - the share-audio slot has one writer
+          // (syncShareAudio) and nothing on this path calls it. A control that
+          // said "mute" and also killed a shared soundtrack would be doing
+          // something other than it says.
           if (event.action === "mute-audio" && this.micTrack) void this.toggleMic();
           if (event.action === "mute-video") {
             // "Turn off their camera" must stop ALL outgoing video, screen share
@@ -887,6 +950,11 @@ export class MeshSession {
             // the very content they just tried to stop, which is the failure
             // that matters here -- a moderation control that visibly does
             // nothing is worse than not having one.
+            //
+            // This DOES take any shared desktop audio with it, because that
+            // audio came from the screen capture being stopped: ending the
+            // picture but leaving the soundtrack playing would be the stranger
+            // outcome. Only mute-audio is scoped to the microphone.
             if (this.cameraTrack) void this.toggleCamera();
             if (this.screenTrack) void this.toggleScreenShare();
           }
@@ -999,10 +1067,12 @@ export class MeshSession {
     });
     this.links.set(peerId, link);
 
-    // Fan the current local capture out to the new pair. replaceTrack cannot
-    // help a brand-new connection; these addTrack calls fold into the link's
-    // first negotiation.
-    if (this.micTrack) link.setAudioTrack(this.micTrack);
+    // Fan every current capture out to the new pair, each into its own slot, so
+    // someone joining mid-call hears and sees exactly what everyone else does.
+    // The slots already exist, so these are plain replaceTrack calls that fold
+    // into the link's first negotiation.
+    link.setMicTrack(this.micTrack);
+    link.setShareAudioTrack(this.screenAudioTrack);
     const video = this.screenTrack ?? this.cameraTrack;
     if (video) link.setVideoTrack(video, this.screenTrack ? "screen" : "camera");
     link.applyVideoBudget(this.currentBudget());
@@ -1399,9 +1469,12 @@ export class MeshSession {
       const track = this.micTrack;
       this.micTrack = null;
       track.onended = null;
+      // Stopped, not just detached from the slot: leaving the capture running
+      // would keep the browser's recording indicator lit, which would make
+      // "muted" a lie.
       track.stop();
       this.localStream.removeTrack(track);
-      for (const link of this.links.values()) link.setAudioTrack(null);
+      this.syncMic();
       this.bumpMedia();
       return;
     }
@@ -1410,8 +1483,7 @@ export class MeshSession {
     if (!track) return;
     this.micTrack = track;
     this.localStream.addTrack(track);
-    // One capture, fanned out: every link gets the same track object.
-    for (const link of this.links.values()) link.setAudioTrack(track);
+    this.syncMic();
     this.bumpMedia();
   }
 
@@ -1450,12 +1522,16 @@ export class MeshSession {
       return;
     }
 
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+    const stream = await this.captureDisplay();
     const track = stream.getVideoTracks()[0];
-    if (!track) return;
+    const audio = stream.getAudioTracks()[0] ?? null;
 
-    if (this.phase === "ended") {
-      track.stop();
+    // A capture with no picture is unusable, and a session that ended while the
+    // picker was open must not leave one running. Both cases release EVERY
+    // track: forgetting the audio half would keep a capture indicator lit with
+    // nothing sending.
+    if (!track || this.phase === "ended") {
+      for (const t of stream.getTracks()) t.stop();
       return;
     }
 
@@ -1463,11 +1539,82 @@ export class MeshSession {
     this.localStream.addTrack(track);
     // The browser's own "Stop sharing" bar bypasses our UI.
     track.onended = () => this.stopScreenShare();
+
+    if (audio) {
+      this.screenAudioTrack = audio;
+      // The same bar (and, on Chromium, the shared tab simply going away) can
+      // end the audio track independently of the video one, so the share-audio
+      // slot is cleared from whichever track actually stopped.
+      audio.onended = () => this.onScreenAudioEnded();
+    }
+
     for (const link of this.links.values()) link.setVideoTrack(track, "screen");
+    this.syncShareAudio();
     // Re-run the budgets: the links now carry screen content, which is exempt,
     // so this pass *clears* the camera caps left on those senders.
     this.applyAllBudgets();
     this.bumpMedia();
+  }
+
+  /**
+   * Opens a display capture, asking for audio.
+   *
+   * Audio is requested every time it might be granted: on Chromium the ask is
+   * what puts the "also share tab/system audio" tick box in the picker, and the
+   * user ticking it is the ONLY way to get it - it cannot be forced. Resolving
+   * with zero audio tracks is therefore normal, not a failure; the share simply
+   * proceeds silently.
+   */
+  private async captureDisplay(): Promise<MediaStream> {
+    const media = navigator.mediaDevices;
+    if (!media?.getDisplayMedia) {
+      throw new Error("This browser does not support screen sharing.");
+    }
+
+    // A browser that has already proved it refuses the audio ask is never asked
+    // again: the retry below costs a second trip through the picker, and once is
+    // enough to learn from.
+    if (this.screenAudioSupport === "unavailable") {
+      return media.getDisplayMedia({ video: true, audio: false });
+    }
+
+    const startedAt = Date.now();
+    try {
+      const stream = await media.getDisplayMedia({ video: true, audio: true });
+      if (stream.getAudioTracks().length > 0) this.screenAudioSupport = "available";
+      // Zero audio tracks leaves the flag alone: an unticked box and a platform
+      // that quietly ignores the ask look identical from here.
+      return stream;
+    } catch (error) {
+      if (!shouldRetryWithoutAudio(error, Date.now() - startedAt)) throw error;
+      // Firefox and Safari can reject the WHOLE request because audio was asked
+      // for, rather than degrading to video only. Without this retry, adding
+      // desktop audio would cost those browsers screen sharing altogether.
+      const stream = await media.getDisplayMedia({ video: true, audio: false });
+      this.screenAudioSupport = "unavailable";
+      return stream;
+    }
+  }
+
+  /**
+   * Drops the desktop-audio branch while the picture keeps flowing.
+   *
+   * There is deliberately no counterpart that turns it back on: only a fresh
+   * getDisplayMedia can grant display audio, so re-enabling it means re-picking
+   * the source. A UI toggle here would be a switch that cannot switch back.
+   */
+  stopScreenAudio() {
+    if (!this.screenAudioTrack) return;
+    this.releaseScreenAudio();
+    this.syncShareAudio();
+    this.bumpMedia();
+  }
+
+  /** The display audio track ended on its own (sharing bar, or the shared tab
+   *  went away). The video share, if any, is untouched. */
+  private onScreenAudioEnded() {
+    if (this.phase === "ended") return;
+    this.stopScreenAudio();
   }
 
   private stopScreenShare() {
@@ -1476,6 +1623,11 @@ export class MeshSession {
     this.screenTrack.stop();
     this.localStream.removeTrack(this.screenTrack);
     this.screenTrack = null;
+    // The desktop audio came from THIS capture, so it ends with it: leaving a
+    // soundtrack playing from a screen nobody can see any more would be a
+    // stranger outcome than silence, and the user asked to stop *sharing*.
+    this.releaseScreenAudio();
+    this.syncShareAudio();
 
     // Hand the video slot back to the camera if it is still running; with no
     // camera left, the senders are removed outright so each peer's track mutes.
@@ -1487,6 +1639,33 @@ export class MeshSession {
       for (const link of this.links.values()) link.setVideoTrack(null, null);
     }
     this.bumpMedia();
+  }
+
+  /** Releases the display-audio capture only. Callers `syncShareAudio` after. */
+  private releaseScreenAudio() {
+    const track = this.screenAudioTrack;
+    if (!track) return;
+    this.screenAudioTrack = null;
+    track.onended = null;
+    track.stop();
+  }
+
+  /**
+   * Fans the microphone out to every link's mic slot. The ONLY writer of that
+   * slot, which is what makes a host mute provably scoped: it can move nothing
+   * but the microphone (see the `moderated` handler).
+   *
+   * A slot swap is a `replaceTrack` on a sender that already exists, so this
+   * renegotiates nothing - the mesh no longer pays 6 SDP round trips to mute.
+   */
+  private syncMic() {
+    for (const link of this.links.values()) link.setMicTrack(this.micTrack);
+  }
+
+  /** Fans shared desktop audio out to every link's share-audio slot. The only
+   *  writer of that slot; nothing about the microphone can reach it. */
+  private syncShareAudio() {
+    for (const link of this.links.values()) link.setShareAudioTrack(this.screenAudioTrack);
   }
 
   private async request(constraints: MediaStreamConstraints) {
