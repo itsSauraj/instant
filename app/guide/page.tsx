@@ -86,18 +86,35 @@ export default function GuidePage() {
                     one would leak to everyone the link reaches.
                   </>,
                   <>
-                    Click <strong>Create a private session</strong>. You are seated instantly as
-                    the host; nobody approves the person who made the room.
+                    Choose who can join. <strong>Private</strong> means you let each person in by
+                    name; <strong>Public</strong> means anyone with the link walks straight in.
+                    Private is the default, and you can flip it either way later from Settings.
+                  </>,
+                  <>
+                    Click <strong>Create a private session</strong> (or{" "}
+                    <strong>Create a public session</strong>). You are seated instantly as the
+                    host; nobody approves the person who made the room.
                   </>,
                 ]}
               />
               <p>
                 Every session gets a code like{" "}
-                <code className="text-foreground font-mono text-xs">k3f9-mq2t-8xbv-7rn0</code>: 16
-                characters drawn from a cryptographically secure random generator, about 80 bits
-                of entropy. That makes codes unguessable in practice. The alphabet deliberately
-                skips I, L, O and U, so a code survives being read aloud or retyped, and the
-                hyphens are display-only.
+                <code className="text-foreground font-mono text-xs">k3f9-mq2t</code>: 8
+                characters drawn from a cryptographically secure random generator, about 40 bits
+                of entropy - over a trillion possibilities, each of which would have to be tried
+                one request at a time. The alphabet deliberately skips I, L, O and U, so a code
+                survives being read aloud or retyped, and the hyphen is display-only.
+              </p>
+              <p>
+                You can also choose your own code: type it straight after{" "}
+                <code className="text-foreground font-mono text-xs">/room/</code> in the address
+                bar, or into the join field on the home page. Anything from 4 to 32 letters and
+                digits works (dashes, spaces and capitals are ignored, so{" "}
+                <code className="text-foreground font-mono text-xs">My-Team</code> and{" "}
+                <code className="text-foreground font-mono text-xs">myteam</code> are the same
+                room). If nobody is using that code, you start the session and become its host;
+                if someone is, you join theirs. A code you chose is a code someone else can guess,
+                which is why a private room still asks the host before anyone is seated.
               </p>
             </GuideSection>
 
@@ -141,11 +158,20 @@ export default function GuidePage() {
                     They press <strong>Ask to join</strong>. Only now does a request go out.
                   </>,
                   <>
-                    The host sees the request by name and admits them or turns them away, from the
-                    participants panel.
+                    In a <strong>private</strong> session the host sees the request by name and
+                    admits them or turns them away, from the participants panel. In a{" "}
+                    <strong>public</strong> session they are seated on the spot, as long as a seat
+                    is free.
                   </>,
                 ]}
               />
+              <p>
+                The host can open or close the door at any time from Settings (or from the waiting
+                screen while alone). Opening a room seats everyone already waiting, in the order
+                they arrived; closing it never removes anyone - from then on new arrivals simply
+                knock again. Everyone in the room can see which mode it is in from the badge next
+                to the session code.
+              </p>
               <p>
                 Rooms hold 2 to 7 people. The host sets the limit; a new room starts at 2 and is
                 raised deliberately. Lowering the limit never ejects anyone already seated - it
@@ -276,8 +302,9 @@ export default function GuidePage() {
               title="Host controls"
               lead="One person holds the keys, and hands them over deliberately."
             >
-              <p>The host admits or turns away joiners, removes participants, sets the room
-              limit, and can pin one person&apos;s video for everyone.</p>
+              <p>The host admits or turns away joiners, decides whether the room is private or
+              public, removes participants, sets the room limit, and can pin one person&apos;s
+              video for everyone.</p>
               <ul className="space-y-2">
                 <FactRow icon={MicOff} title="Moderation is honest about what it can do">
                   The host can mute someone&apos;s mic or turn off their camera - enforced, applied
@@ -369,7 +396,8 @@ export default function GuidePage() {
                 </li>
                 <li>Avatars are drawn locally from a seed. QR codes are generated and scanned locally.</li>
                 <li>
-                  Room codes are unguessable (~80 bits), and entry still requires the host&apos;s
+                  Generated room codes are not guessable in practice (~40 bits, tried one request
+                  at a time), and in a private session entry still requires the host&apos;s
                   approval on top - the code alone is never enough.
                 </li>
               </ul>
@@ -378,7 +406,12 @@ export default function GuidePage() {
               <ul>
                 <li>
                   The invite link is a credential. Share it like one - anyone holding it can knock
-                  on your door.
+                  on your door, and in a public session they are already through it.
+                </li>
+                <li>
+                  A custom code is only as secret as the word you picked. Combine one with a public
+                  session and anyone who guesses it is in; the waiting screen warns you when that
+                  is the case.
                 </li>
                 <li>
                   Without a TURN relay, two people who are both behind symmetric NAT may fail to

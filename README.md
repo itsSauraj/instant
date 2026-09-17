@@ -87,8 +87,16 @@ What the code guarantees, as implemented in `lib/server/rooms.ts` and
 - A sealed room's code is **tombstoned** when the room dies, so the invite
   link cannot be reopened for a fresh session (15-minute tombstone; the id
   space makes accidental reuse implausible anyway).
-- Room ids are 80 bits from a CSPRNG (`crypto.getRandomValues`, 16 characters
-  of a 32-character alphabet) - not guessable in practice.
+- Generated room codes are 40 bits from a CSPRNG (`crypto.getRandomValues`,
+  8 characters of a 32-character alphabet) - too many to enumerate against a
+  server that answers one code at a time. A **custom** code is anything you
+  type after `/room/` (4 to 32 letters and digits; dashes, spaces and case are
+  ignored), and is exactly as guessable as you make it.
+- Sessions are **private** by default: knowing the code gets you to the door,
+  and the host lets each person in by name. A **public** session seats anyone
+  with the code straight away, up to the seat limit, so there the code is the
+  only barrier. The founder picks on the home page and the host can flip it
+  either way mid-session; opening a room seats whoever was already waiting.
 - WebRTC encrypts everything in transit with DTLS-SRTP. This holds even when
   a TURN relay carries the traffic; the relay sees only ciphertext.
 - Nothing is persisted server-side. Rooms live in process memory for the

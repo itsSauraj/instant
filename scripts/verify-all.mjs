@@ -34,6 +34,7 @@ const SUITES = [
   "verify-audio-playback.mjs", //   remote audio is audible, not merely delivered
   "verify-host-handover.mjs", //     clean close without a false error; host transfer
   "verify-end-session.mjs", //       close-for-everyone vs leave-with-successor
+  "verify-visibility.mjs", //        public vs private rooms, short and custom codes
 ];
 
 const COUNT_LINE = /^\s{2}(PASS|FAIL|SKIP)\s{2}/;

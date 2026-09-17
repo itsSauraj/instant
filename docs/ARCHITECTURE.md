@@ -68,7 +68,7 @@ end-of-candidates).
 
 | Status | When |
 | --- | --- |
-| 400 | Room id fails `isValidRoomId` (not 16 chars of the Crockford-style alphabet). |
+| 400 | Room id fails `isValidRoomId` (fewer than 4 or more than 32 letters and digits after normalisation; generated codes are 8 chars of the Crockford-style alphabet). |
 | 200 | Everything else - including refusals, which arrive in-stream as `peer-left`. |
 
 `POST`:
