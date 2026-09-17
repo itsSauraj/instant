@@ -2,28 +2,40 @@
 
 import { useRef } from "react";
 import { useGSAP } from "@gsap/react";
-import { Link2, Loader2, Lock, QrCode, X } from "lucide-react";
+import { AlertTriangle, Globe, Link2, Loader2, Lock, QrCode, X } from "lucide-react";
 
 import { CopyField } from "@/components/copy-field";
 import { QrInvite } from "@/components/room/qr-invite";
+import { VisibilityToggle } from "@/components/room/visibility-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EASE, gsap, prefersReducedMotion, revealIn } from "@/lib/animation";
-import { prettyRoomId } from "@/lib/ids";
+import { isGeneratedRoomId, prettyRoomId } from "@/lib/ids";
+import type { RoomVisibility } from "@/lib/signal-protocol";
 
 /** Shown while the first participant is alone in the room. */
 export function LobbyOverlay({
   roomId,
   inviteUrl,
+  visibility,
+  onVisibilityChange,
   onDismiss,
 }: {
   roomId: string;
   inviteUrl: string;
+  visibility: RoomVisibility;
+  /** Host only: flips the room between private and public while waiting. */
+  onVisibilityChange?: (value: RoomVisibility) => void;
   /** Lets the creator close the overlay and use the room while alone. */
   onDismiss?: () => void;
 }) {
   const scope = useRef<HTMLDivElement>(null);
   const ringRef = useRef<HTMLSpanElement>(null);
+  const isPublic = visibility === "public";
+  // A code somebody chose is a code somebody else can guess. In a private room
+  // the host still stands between the guess and a seat; in a public one the
+  // guess IS the seat, so say so right where the code is being shared.
+  const guessable = isPublic && !isGeneratedRoomId(roomId);
 
   useGSAP(
     () => {
@@ -75,7 +87,9 @@ export function LobbyOverlay({
           Waiting for others to join
         </h2>
         <p data-anim="in" className="text-muted-foreground mt-1.5 text-sm">
-          Share this link. You will be asked to let each person in as they arrive.
+          {isPublic
+            ? "Share this link. Anyone who opens it joins straight away."
+            : "Share this link. You will be asked to let each person in as they arrive."}
         </p>
 
         <div data-anim="in" className="mt-5 space-y-3 text-left">
@@ -100,10 +114,36 @@ export function LobbyOverlay({
           </div>
         </div>
 
-        <Badge data-anim="in" variant="muted" className="mt-5 gap-1.5 py-1">
-          <Lock />
-          Nobody joins until you approve them
+        {onVisibilityChange ? (
+          <div data-anim="in" className="mt-5 space-y-1.5 text-left">
+            <p className="text-muted-foreground text-xs font-medium">Who can join</p>
+            <VisibilityToggle value={visibility} onChange={onVisibilityChange} size="sm" />
+          </div>
+        ) : null}
+
+        <Badge
+          data-anim="in"
+          variant={isPublic ? "warning" : "muted"}
+          data-visibility={visibility}
+          className="mt-4 gap-1.5 py-1"
+        >
+          {isPublic ? <Globe /> : <Lock />}
+          {isPublic ? "Open to anyone with the link" : "Nobody joins until you approve them"}
         </Badge>
+
+        {guessable ? (
+          <p
+            role="note"
+            data-slot="guessable-warning"
+            className="text-warning mt-3 flex items-start justify-center gap-1.5 text-left text-xs"
+          >
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            <span>
+              This is a custom code, so it is easy to guess. Anyone who types it in joins without
+              asking. Switch to private if that matters.
+            </span>
+          </p>
+        ) : null}
       </div>
     </div>
   );

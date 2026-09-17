@@ -14,12 +14,21 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { prettyRoomId } from "@/lib/ids";
+import type { RoomVisibility } from "@/lib/signal-protocol";
 
 /**
  * The invite surface as a header action: the same link/code/QR trio the
  * lobby shows, available at any point in the session.
  */
-export function InviteDialog({ roomId, inviteUrl }: { roomId: string; inviteUrl: string }) {
+export function InviteDialog({
+  roomId,
+  inviteUrl,
+  visibility,
+}: {
+  roomId: string;
+  inviteUrl: string;
+  visibility: RoomVisibility;
+}) {
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -34,7 +43,9 @@ export function InviteDialog({ roomId, inviteUrl }: { roomId: string; inviteUrl:
         <DialogHeader className="gap-1 pr-6">
           <DialogTitle>Invite to this session</DialogTitle>
           <DialogDescription>
-            Only the next person to open this link can join.
+            {visibility === "public"
+              ? "Anyone who opens this link joins straight away while a seat is free."
+              : "People who open this link ask to join; the host lets each one in by name."}
           </DialogDescription>
         </DialogHeader>
 

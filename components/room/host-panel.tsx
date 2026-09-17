@@ -3,6 +3,7 @@
 import { Crown, Power } from "lucide-react";
 
 import { CapacityControl } from "@/components/room/capacity-control";
+import { VISIBILITY_COPY, VisibilityToggle } from "@/components/room/visibility-toggle";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,12 +17,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import type { Participant } from "@/lib/signal-protocol";
+import type { Participant, RoomVisibility } from "@/lib/signal-protocol";
 import { cn } from "@/lib/utils";
 
 /**
- * Host-only room controls: the participant limit, and the one irreversible act
- * - closing the session for everyone. Only the host may close a room
+ * Host-only room controls: who may join, the participant limit, and the one
+ * irreversible act - closing the session for everyone. Only the host may close a room
  * (delegating that right no longer exists), so the close button lives here and
  * nowhere else, behind an explicit confirmation.
  *
@@ -35,15 +36,20 @@ import { cn } from "@/lib/utils";
  */
 export function HostPanel({
   capacity,
+  visibility,
   participants,
   onCapacityChange,
+  onVisibilityChange,
   onTransferHost,
   onClose,
   className,
 }: {
   capacity: number;
+  visibility: RoomVisibility;
   participants: Participant[];
   onCapacityChange: (value: number) => void;
+  /** Opens the room to anyone with the link, or makes arrivals knock again. */
+  onVisibilityChange: (value: RoomVisibility) => void;
   /** Opens the successor picker in transfer-only mode: the host role moves,
    *  this participant STAYS in the session. Distinct from the leave flow. */
   onTransferHost: () => void;
@@ -56,6 +62,29 @@ export function HostPanel({
       aria-label="Host controls"
       className={cn("panel mt-3 space-y-3 px-4 py-3", className)}
     >
+      {/* Admission first: it is the setting most likely to be changed
+          mid-session ("just let everyone in") and the one with the widest
+          consequence, so it should not hide below the stepper. */}
+      <div role="group" aria-label="Who can join" className="space-y-1.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p className="min-w-0 flex-1 text-sm">Who can join</p>
+          <VisibilityToggle
+            value={visibility}
+            onChange={onVisibilityChange}
+            size="sm"
+            className="w-auto"
+          />
+        </div>
+        <p className="text-muted-foreground text-xs">
+          {VISIBILITY_COPY[visibility].summary}
+          {visibility === "public"
+            ? " Anyone already waiting at the door was let in when you opened it."
+            : " Switching to private never removes anyone already here."}
+        </p>
+      </div>
+
+      <Separator />
+
       <CapacityControl
         capacity={capacity}
         headcount={participants.length}

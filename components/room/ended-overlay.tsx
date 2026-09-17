@@ -34,7 +34,7 @@ const EXPLANATION: Record<EndReason, { title: string; body: string; icon: typeof
   },
   rejected: {
     title: "The host did not let you in",
-    body: "Every person joining has to be approved. Ask the host directly if you think this was a mistake.",
+    body: "In a private session every person joining has to be approved. Ask the host directly if you think this was a mistake.",
     icon: UserX,
   },
   expired: {

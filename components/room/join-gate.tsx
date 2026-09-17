@@ -12,12 +12,17 @@ import { getStoredName, sanitizeName, setStoredName } from "@/lib/identity";
 import { prettyRoomId } from "@/lib/ids";
 
 /**
- * Shown to anyone arriving at an invite link before they knock.
+ * Shown to anyone arriving at a room URL before anything is sent.
  *
- * Nothing is sent until they submit: the signalling stream is not opened, so
+ * Nothing goes out until they submit: the signalling stream is not opened, so
  * the host is never asked to approve an anonymous request. That is the point of
  * gating here rather than prompting afterwards -- the host decides based on a
  * name, so the name has to exist before the knock does.
+ *
+ * The page cannot know yet which of three rooms lies behind the code: a private
+ * one (they will knock), a public one (they walk in) or none at all (a custom
+ * code typed into the address bar founds a fresh room with them as host). The
+ * copy says so rather than promising any one outcome.
  *
  * The creator of the room skips this (they named themselves on the home page),
  * and so does a reload that is reclaiming an existing seat.
@@ -47,9 +52,9 @@ export function JoinGate({
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     const clean = sanitizeName(name);
-    // Unlike the home page, an empty name is refused outright here. The host is
-    // about to decide whether to admit a stranger and "Guest 3" tells them
-    // nothing, so this is the one place a name is genuinely required.
+    // Unlike the home page, an empty name is refused outright here. The host
+    // may be about to decide whether to admit a stranger and "Guest 3" tells
+    // them nothing, so this is the one place a name is genuinely required.
     if (!clean) {
       setNudge(true);
       inputRef.current?.focus();
@@ -73,9 +78,10 @@ export function JoinGate({
           Join this session
         </h1>
         <p data-anim="in" className="text-muted-foreground mt-1.5 text-sm">
-          You are about to ask to join session{" "}
-          <span className="font-mono">{prettyRoomId(roomId)}</span>. The host will see your name
-          and decide whether to let you in.
+          You are about to join session{" "}
+          <span className="font-mono">{prettyRoomId(roomId)}</span>. If it is private, the host
+          will see your name and decide whether to let you in; if it is public, you walk straight
+          in. If nobody is using this code yet, you start the session and become its host.
         </p>
 
         <div data-anim="in" className="mt-5 text-left">
@@ -100,8 +106,8 @@ export function JoinGate({
         >
           <Lock className="mt-0.5 size-3.5 shrink-0" />
           <span className="text-left">
-            Nothing is sent until you ask. Once you are in, everything you share goes straight to
-            the other people, not through a server.
+            Nothing is sent until you press the button. Once you are in, everything you share goes
+            straight to the other people, not through a server.
           </span>
         </p>
 

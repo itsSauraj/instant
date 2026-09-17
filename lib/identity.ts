@@ -12,7 +12,7 @@
  * components, and `localStorage` can also throw in private browsing modes.
  */
 
-import { sanitizeName } from "@/lib/signal-protocol";
+import { sanitizeName, sanitizeVisibility, type RoomVisibility } from "@/lib/signal-protocol";
 
 const STORAGE_KEY = "instant-name";
 
@@ -73,32 +73,38 @@ export function getUserId(): string {
 /**
  * Marks that this tab just created a room, so the room page seats the creator
  * straight away instead of showing the join gate: they typed their name on the
- * home page a moment ago and asking again would be nonsense.
+ * home page a moment ago and asking again would be nonsense. The marker also
+ * carries the visibility they picked, which the founding GET hands the server.
  *
  * Per-tab and single-use. Anyone arriving at the link any other way -- pasted,
  * scanned, from a chat -- has no marker and is asked for a name first.
  */
 const CREATED_KEY = (roomId: string) => `instant-created-${roomId}`;
 
-export function markRoomCreated(roomId: string) {
+export function markRoomCreated(roomId: string, visibility: RoomVisibility = "private") {
   if (typeof window === "undefined") return;
   try {
-    window.sessionStorage.setItem(CREATED_KEY(roomId), "1");
+    window.sessionStorage.setItem(CREATED_KEY(roomId), visibility);
   } catch {
     // Worst case the creator sees the gate with their name prefilled.
   }
 }
 
-/** Reads and clears the marker, so a later revisit is treated as a join. */
-export function consumeRoomCreated(roomId: string): boolean {
-  if (typeof window === "undefined") return false;
+/**
+ * Reads and clears the marker, so a later revisit is treated as a join.
+ * Returns the visibility the creator chose, or null when this tab did not
+ * create the room.
+ */
+export function consumeRoomCreated(roomId: string): RoomVisibility | null {
+  if (typeof window === "undefined") return null;
   try {
     const key = CREATED_KEY(roomId);
-    const found = window.sessionStorage.getItem(key) === "1";
-    if (found) window.sessionStorage.removeItem(key);
-    return found;
+    const raw = window.sessionStorage.getItem(key);
+    if (raw === null) return null;
+    window.sessionStorage.removeItem(key);
+    return sanitizeVisibility(raw);
   } catch {
-    return false;
+    return null;
   }
 }
 

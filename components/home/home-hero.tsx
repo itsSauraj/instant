@@ -8,12 +8,14 @@ import { ArrowRight, Lock, Users } from "lucide-react";
 import { MeshVisual } from "@/components/home/mesh-visual";
 import { NameField } from "@/components/home/name-field";
 import { ScanInvite } from "@/components/home/scan-invite";
+import { VISIBILITY_COPY, VisibilityToggle } from "@/components/room/visibility-toggle";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { DURATION, EASE, gsap, prefersReducedMotion, revealIn } from "@/lib/animation";
 import { getStoredName, markRoomCreated, setStoredName } from "@/lib/identity";
-import { createRoomId, isValidRoomId, normalizeRoomId } from "@/lib/ids";
+import { ROOM_CODE, createRoomId, isValidRoomId, normalizeRoomId } from "@/lib/ids";
+import type { RoomVisibility } from "@/lib/signal-protocol";
 
 export function HomeHero() {
   const router = useRouter();
@@ -23,6 +25,9 @@ export function HomeHero() {
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState<string | null>(null);
   const [name, setName] = useState("");
+  // Private is the default on purpose: a public room's code is its only
+  // barrier, so opening a room up should be a choice, never an accident.
+  const [visibility, setVisibility] = useState<RoomVisibility>("private");
   // One soft nudge only: an empty name never blocks (the server substitutes a
   // placeholder), but the first attempt pauses to ask for one.
   const [nameNudged, setNameNudged] = useState(false);
@@ -76,12 +81,17 @@ export function HomeHero() {
   const createSession = () => {
     if (!commitName()) return;
     const id = createRoomId();
-    // Tells the room page this tab is the creator, so it seats them instead of
-    // asking for a name they just typed.
-    markRoomCreated(id);
+    // Tells the room page this tab is the creator (and which kind of room they
+    // asked for), so it seats them instead of asking for a name they just typed.
+    markRoomCreated(id, visibility);
     router.push(`/room/${id}`);
   };
 
+  /**
+   * Also the way to start a session with a code of your own: a code nobody is
+   * using founds a fresh room with whoever typed it as host, exactly as typing
+   * `/room/<code>` into the address bar does.
+   */
   const join = (event: React.FormEvent) => {
     event.preventDefault();
     const id = normalizeRoomId(joinCode);
@@ -91,7 +101,9 @@ export function HomeHero() {
       return;
     }
     if (!isValidRoomId(id)) {
-      setJoinError("That doesn't look like a valid session code.");
+      setJoinError(
+        `Codes are ${ROOM_CODE.minLength} to ${ROOM_CODE.maxLength} letters and numbers.`,
+      );
       shake();
       return;
     }
@@ -161,8 +173,23 @@ export function HomeHero() {
           className="mb-5"
         />
 
+        {/* The kind of room is chosen BEFORE it exists, so the founding
+            request carries it and nobody can slip in during the gap between
+            "created" and "made private". The host can still flip it later. */}
+        <div className="mb-3 space-y-1.5">
+          <p className="text-muted-foreground text-xs font-medium">Who can join</p>
+          <VisibilityToggle value={visibility} onChange={setVisibility} />
+          <p
+            // Live so a screen reader hears what the switch it just flipped means.
+            aria-live="polite"
+            className="text-muted-foreground text-xs"
+          >
+            {VISIBILITY_COPY[visibility].summary}
+          </p>
+        </div>
+
         <Button size="lg" className="w-full gap-2" onClick={createSession}>
-          Create a private session
+          {visibility === "public" ? "Create a public session" : "Create a private session"}
           <ArrowRight className="size-4" />
         </Button>
 
@@ -209,7 +236,8 @@ export function HomeHero() {
             </p>
           ) : (
             <p className="text-muted-foreground text-xs">
-              Paste a code, or scan one with the camera icon
+              Paste a code, scan one with the camera icon, or type a code of your own to start a
+              session with it
             </p>
           )}
         </form>
@@ -221,9 +249,9 @@ export function HomeHero() {
       >
         <Lock className="mt-0.5 size-3.5 shrink-0" />
         <span className="text-left">
-          Nobody enters without the host letting them in, and the host sets how many seats
-          exist. When the host closes the session, it is destroyed for everyone and cannot be
-          resumed.
+          In a private session nobody enters without the host letting them in; a public one
+          admits anyone with the link. Either way the host sets how many seats exist, and
+          closing the session destroys it for everyone.
         </span>
       </p>
     </div>

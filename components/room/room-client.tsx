@@ -34,6 +34,7 @@ import { Presence } from "@/components/room/presence";
 import { WaitingApproval } from "@/components/room/waiting-approval";
 import { SoundToggle } from "@/components/room/sound-toggle";
 import { VerifiedShield } from "@/components/room/verified-shield";
+import { VISIBILITY_COPY, VisibilityBadge } from "@/components/room/visibility-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,7 @@ import { pushToast } from "@/hooks/use-toasts";
 import { revealIn } from "@/lib/animation";
 import { consumeRoomCreated, hasSeatToken } from "@/lib/identity";
 import { prettyRoomId } from "@/lib/ids";
-import type { PeerId } from "@/lib/signal-protocol";
+import type { PeerId, RoomVisibility } from "@/lib/signal-protocol";
 import { cn } from "@/lib/utils";
 
 type TabKey = "notes" | "files" | "media" | "doc" | "settings";
@@ -94,13 +95,19 @@ export function RoomClient({ roomId }: { roomId: string }) {
   const [ready, setReady] = useState<boolean | null>(null);
   // Keyed by room and consumed once: `consumeRoomCreated` clears the marker, so
   // StrictMode's double-invoked effect would otherwise show the creator a gate.
-  const decided = useRef<{ roomId: string; ready: boolean } | null>(null);
+  // The marker also carries the visibility the creator picked on the home
+  // page; anyone else founds (if they found at all) a private room.
+  const decided = useRef<{ roomId: string; ready: boolean; foundAs: RoomVisibility } | null>(
+    null,
+  );
 
   useEffect(() => {
     if (decided.current?.roomId !== roomId) {
+      const created = consumeRoomCreated(roomId);
       decided.current = {
         roomId,
-        ready: consumeRoomCreated(roomId) || hasSeatToken(roomId),
+        ready: created !== null || hasSeatToken(roomId),
+        foundAs: created ?? "private",
       };
     }
     setReady(decided.current.ready);
@@ -111,11 +118,11 @@ export function RoomClient({ roomId }: { roomId: string }) {
   if (ready === null) return null;
   if (!ready) return <JoinGate roomId={roomId} onSubmit={() => setReady(true)} />;
 
-  return <RoomSession roomId={roomId} />;
+  return <RoomSession roomId={roomId} foundAs={decided.current?.foundAs ?? "private"} />;
 }
 
-function RoomSession({ roomId }: { roomId: string }) {
-  const session = usePeerSession(roomId);
+function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibility }) {
+  const session = usePeerSession(roomId, "", foundAs);
   const [tab, setTab] = useState<TabKey>("notes");
   // The creator may close the waiting overlay and use the room alone; the
   // Invite button in the header brings the same content back at any time.
@@ -409,6 +416,18 @@ function RoomSession({ roomId }: { roomId: string }) {
           <TooltipContent>Session code</TooltipContent>
         </Tooltip>
 
+        {/* Everyone sees whether the door is open, not just the host: a guest
+            deciding what to share should know that anyone with the link can
+            walk in. The host changes it under Settings. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span data-anim="in" className="inline-flex cursor-default">
+              <VisibilityBadge visibility={session.visibility} />
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{VISIBILITY_COPY[session.visibility].summary}</TooltipContent>
+        </Tooltip>
+
         <span data-anim="in">
           <VerifiedShield
             percent={verification.percent}
@@ -433,7 +452,7 @@ function RoomSession({ roomId }: { roomId: string }) {
             pending={session.isHost ? session.knocks.length : 0}
             onOpenList={openParticipants}
           />
-          <InviteDialog roomId={roomId} inviteUrl={inviteUrl} />
+          <InviteDialog roomId={roomId} inviteUrl={inviteUrl} visibility={session.visibility} />
           <ConnectionStatus phase={session.phase} peers={session.participants.length} />
         </div>
       </header>
@@ -635,8 +654,10 @@ function RoomSession({ roomId }: { roomId: string }) {
                  everyone. */
               <HostPanel
                 capacity={session.capacity}
+                visibility={session.visibility}
                 participants={roster}
                 onCapacityChange={session.setCapacity}
+                onVisibilityChange={session.setVisibility}
                 onTransferHost={() => {
                   // Transfer-only: the picker opens in "stay" mode, so the
                   // confirm copy promises exactly what happens - no leave.
@@ -648,8 +669,8 @@ function RoomSession({ roomId }: { roomId: string }) {
               />
             ) : (
               <p className="text-muted-foreground text-sm">
-                Session settings (participant limit, closing the room) belong to the host. Sound
-                and theme controls live at the bottom of the left rail.
+                Session settings (who can join, the participant limit, closing the room) belong to
+                the host. Sound and theme controls live at the bottom of the left rail.
               </p>
             )}
           </div>
@@ -675,6 +696,11 @@ function RoomSession({ roomId }: { roomId: string }) {
         <LobbyOverlay
           roomId={roomId}
           inviteUrl={inviteUrl}
+          visibility={session.visibility}
+          // Alone in the lobby means host, but the server is the judge of
+          // that; a guest's toggle would be refused, so offer it only when the
+          // roster says we hold the role.
+          onVisibilityChange={session.isHost ? session.setVisibility : undefined}
           onDismiss={() => setLobbyDismissed(true)}
         />
       ) : null}

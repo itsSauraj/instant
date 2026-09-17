@@ -29,8 +29,8 @@ import { cn } from "@/lib/utils";
 const FEATURES = [
   {
     icon: UserCheck,
-    title: "The host approves every join",
-    description: "Nobody enters without being let in by name. You see who is knocking before they see anything.",
+    title: "Private by default, public on demand",
+    description: "In a private session nobody enters without being let in by name. Flip it to public and anyone with the link walks in.",
   },
   {
     icon: ShieldCheck,
@@ -54,8 +54,8 @@ const FEATURES = [
   },
   {
     icon: QrCode,
-    title: "QR invite and scan",
-    description: "Invite codes are generated and decoded locally, in the browser. They never touch a server.",
+    title: "Short codes, QR invite and scan",
+    description: "An eight-character code, or one you choose by typing it after /room/. QR codes are generated and decoded in the browser.",
   },
   {
     icon: FileText,
