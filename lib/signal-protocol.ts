@@ -12,6 +12,23 @@
 
 export type PeerId = string;
 
+/**
+ * Who may be seated without the host's word.
+ *
+ *  - `private`: an arrival is queued as a knock and the host answers it.
+ *  - `public`: an arrival is seated on the spot while a seat is free.
+ *
+ * Chosen when the room is founded and changeable by the host at any time. It
+ * governs *admission only*: every host-only action stays host-only, capacity
+ * still applies, and a public room is still destroyed when the host closes it.
+ */
+export type RoomVisibility = "private" | "public";
+
+/** Anything that is not literally `public` is private: the safe default. */
+export function sanitizeVisibility(raw: unknown): RoomVisibility {
+  return raw === "public" ? "public" : "private";
+}
+
 export const ROOM_CAPACITY = {
   min: 2,
   max: 7,
@@ -94,14 +111,15 @@ export type ServerEvent =
       resumeToken: string;
       roster: Participant[];
       capacity: number;
+      visibility: RoomVisibility;
       resumed: boolean;
       /** Host's forced pin, if one is active. */
       pinned: PeerId | null;
     }
-  /** Admitted to the waiting queue; the host has been asked. */
+  /** Admitted to the waiting queue; the host has been asked. Private rooms only. */
   | { t: "waiting-approval" }
-  /** Authoritative roster. Sent on any membership or capacity change. */
-  | { t: "roster"; roster: Participant[]; capacity: number }
+  /** Authoritative roster. Sent on any membership, capacity or visibility change. */
+  | { t: "roster"; roster: Participant[]; capacity: number; visibility: RoomVisibility }
   | { t: "peer-joined"; peer: Participant }
   | { t: "peer-left"; peerId: PeerId; reason: LeaveReason }
   /** A peer's seat is held (reloading) or has been reclaimed. */
@@ -141,6 +159,11 @@ export type ClientMessage =
   | { t: "admit"; knockId: string; allow: boolean }
   /** Host only: change the participant limit, within ROOM_CAPACITY. */
   | { t: "capacity"; value: number }
+  /**
+   * Host only: open the room to anyone with the link, or close it back down so
+   * arrivals knock again. Opening it seats whoever is already waiting.
+   */
+  | { t: "visibility"; value: RoomVisibility }
   /** Host only: eject a participant. */
   | { t: "remove"; peerId: PeerId }
   /**
@@ -223,6 +246,12 @@ export const JOIN_PARAM = {
    * session storage) instead of knocking as a stranger.
    */
   uid: "uid",
+  /**
+   * The visibility a FOUNDER wants for the room. Read only when this GET
+   * actually founds the room; a joiner's value is ignored, because who may
+   * enter is the host's call and nobody else's.
+   */
+  visibility: "visibility",
 } as const;
 
 /** A uid is a locally-minted UUID; anything else is treated as absent. */

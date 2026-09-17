@@ -9,6 +9,7 @@ import {
   removePeer,
   setCapacity,
   setPin,
+  setVisibility,
   streamAborted,
   transferHost,
   type Connection,
@@ -16,6 +17,7 @@ import {
 import {
   SIGNAL_LIMITS,
   type ModerationAction,
+  type RoomVisibility,
   type ServerEvent,
   type SignalPayload,
 } from "@/lib/signal-protocol";
@@ -77,12 +79,18 @@ function seatFrom(stream: TestStream, conn: Connection): Seat {
 }
 
 /** First arrival founds the room and is seated as host. */
-function found(roomId: string, name = "Host", uid = ""): Seat {
+function found(
+  roomId: string,
+  name = "Host",
+  uid = "",
+  visibility: RoomVisibility = "private",
+): Seat {
   const stream = makeStream();
-  const conn = openStream(roomId, { name, resumeToken: null, uid }, stream.handlers);
+  const conn = openStream(roomId, { name, resumeToken: null, uid, visibility }, stream.handlers);
   return seatFrom(stream, conn);
 }
 
+/** A later arrival. Knocks on a private room; walks into a public one. */
 function knock(roomId: string, name = "Guest", uid = "") {
   const stream = makeStream();
   const conn = openStream(roomId, { name, resumeToken: null, uid }, stream.handlers);
@@ -106,15 +114,23 @@ afterEach(() => {
 });
 
 describe("founding and knocking", () => {
-  it("seats the first arrival as host with the default capacity", () => {
+  it("seats the first arrival as host with the default capacity, private by default", () => {
     const host = found(freshRoomId());
     const welcome = lastWelcome(host.stream);
     expect(welcome.self.isHost).toBe(true);
     expect(welcome.resumed).toBe(false);
     expect(welcome.capacity).toBe(2);
+    expect(welcome.visibility).toBe("private");
     expect(welcome.roster).toHaveLength(1);
     expect(welcome.secret).not.toBe("");
     expect(welcome.resumeToken).not.toBe("");
+  });
+
+  it("accepts any valid code as a room, custom codes included", () => {
+    const host = found("my-team-standup");
+    expect(lastWelcome(host.stream).self.isHost).toBe(true);
+    const joiner = knock("my-team-standup", "Ada");
+    expect(eventsOf(joiner.stream, "waiting-approval")).toHaveLength(1);
   });
 
   it("queues later arrivals as knocks the host hears about", () => {
@@ -200,6 +216,156 @@ describe("founding and knocking", () => {
   });
 });
 
+describe("public rooms", () => {
+  it("seats later arrivals immediately, without a knock", () => {
+    const roomId = freshRoomId();
+    const host = found(roomId, "Host", "", "public");
+    expect(lastWelcome(host.stream).visibility).toBe("public");
+
+    const walkIn = knock(roomId, "Ada");
+    expect(eventsOf(walkIn.stream, "waiting-approval")).toHaveLength(0);
+    expect(eventsOf(host.stream, "knock")).toHaveLength(0);
+
+    const welcome = lastWelcome(walkIn.stream);
+    expect(welcome.self.isHost).toBe(false);
+    expect(welcome.self.name).toBe("Ada");
+    expect(welcome.visibility).toBe("public");
+    expect(welcome.roster).toHaveLength(2);
+    expect(walkIn.conn.phase).toBe("seated");
+    expect(eventsOf(host.stream, "peer-joined")).toHaveLength(1);
+  });
+
+  it("still enforces capacity on walk-ins", () => {
+    const roomId = freshRoomId();
+    found(roomId, "Host", "", "public");
+    knock(roomId, "Ada");
+
+    const third = knock(roomId, "Bob");
+    expect(eventsOf(third.stream, "ended")[0]?.reason).toBe("room-full");
+    expect(third.conn.phase).toBe("done");
+  });
+
+  it("ignores a joiner's visibility request on an existing room", () => {
+    const roomId = freshRoomId();
+    const host = found(roomId); // private
+    const stream = makeStream();
+    openStream(
+      roomId,
+      { name: "Sneaky", resumeToken: null, uid: "", visibility: "public" },
+      stream.handlers,
+    );
+    expect(eventsOf(stream, "waiting-approval")).toHaveLength(1);
+    expect(eventsOf(stream, "welcome")).toHaveLength(0);
+    const rosters = eventsOf(host.stream, "roster");
+    expect(rosters.every((event) => event.visibility === "private")).toBe(true);
+  });
+
+  it("lets a walk-in leave and reload like any other member", () => {
+    const roomId = freshRoomId();
+    const host = found(roomId, "Host", "", "public");
+    const walkIn = knock(roomId, "Ada");
+    const seat = seatFrom(walkIn.stream, walkIn.conn);
+
+    streamAborted(seat.conn);
+    expect(eventsOf(host.stream, "peer-away")[0]).toMatchObject({ peerId: seat.id, away: true });
+
+    const back = makeStream();
+    openStream(roomId, { name: "Ada", resumeToken: seat.resumeToken, uid: "" }, back.handlers);
+    expect(lastWelcome(back).resumed).toBe(true);
+    expect(lastWelcome(back).self.id).toBe(seat.id);
+  });
+});
+
+describe("visibility changes", () => {
+  it("is host-only and echoed to everyone through the roster", () => {
+    const roomId = freshRoomId();
+    const host = found(roomId);
+    const guest = join(roomId, host);
+
+    expect(setVisibility(roomId, guest.id, guest.secret, "public")).toEqual({
+      ok: false,
+      error: "forbidden",
+    });
+
+    expect(setVisibility(roomId, host.id, host.secret, "public")).toEqual({ ok: true });
+    for (const stream of [host.stream, guest.stream]) {
+      const rosters = eventsOf(stream, "roster");
+      expect(rosters[rosters.length - 1].visibility).toBe("public");
+    }
+  });
+
+  it("opening the room seats everyone already waiting, in arrival order", () => {
+    const roomId = freshRoomId();
+    const host = found(roomId);
+    setCapacity(roomId, host.id, host.secret, 3);
+    const ada = knock(roomId, "Ada");
+    const bob = knock(roomId, "Bob");
+    expect(eventsOf(host.stream, "knock")).toHaveLength(2);
+
+    expect(setVisibility(roomId, host.id, host.secret, "public")).toEqual({ ok: true });
+
+    expect(lastWelcome(ada.stream).self.name).toBe("Ada");
+    expect(lastWelcome(bob.stream).self.name).toBe("Bob");
+    expect(ada.conn.phase).toBe("seated");
+    expect(bob.conn.phase).toBe("seated");
+    expect(lastWelcome(ada.stream).self.joinedAt).toBeLessThanOrEqual(
+      lastWelcome(bob.stream).self.joinedAt,
+    );
+
+    // Whoever was seated by the flip appears on the host's roster.
+    const rosters = eventsOf(host.stream, "roster");
+    const latest = rosters[rosters.length - 1];
+    expect(latest.roster.map((p) => p.name).sort()).toEqual(["Ada", "Bob", "Host"]);
+    expect(latest.visibility).toBe("public");
+  });
+
+  it("turns away the waiting knockers that do not fit when the room is opened", () => {
+    const roomId = freshRoomId();
+    const host = found(roomId); // capacity 2: one free seat
+    const ada = knock(roomId, "Ada");
+    const bob = knock(roomId, "Bob");
+
+    setVisibility(roomId, host.id, host.secret, "public");
+
+    expect(eventsOf(ada.stream, "welcome")).toHaveLength(1);
+    expect(eventsOf(bob.stream, "ended")[0]?.reason).toBe("room-full");
+    expect(bob.stream.disconnected).toBe(true);
+    // The knock is resolved either way; nothing lingers for the host.
+    const knocks = eventsOf(host.stream, "knock");
+    expect(
+      answerKnock(roomId, host.id, host.secret, knocks[1].knockId, true),
+    ).toEqual({ ok: false, error: "unknown-knock" });
+  });
+
+  it("closing the room back down makes new arrivals knock and removes nobody", () => {
+    const roomId = freshRoomId();
+    const host = found(roomId, "Host", "", "public");
+    setCapacity(roomId, host.id, host.secret, 3);
+    const walkIn = knock(roomId, "Ada");
+    expect(eventsOf(walkIn.stream, "welcome")).toHaveLength(1);
+
+    expect(setVisibility(roomId, host.id, host.secret, "private")).toEqual({ ok: true });
+    expect(eventsOf(walkIn.stream, "ended")).toHaveLength(0);
+
+    const late = knock(roomId, "Bob");
+    expect(eventsOf(late.stream, "waiting-approval")).toHaveLength(1);
+    expect(eventsOf(host.stream, "knock")[0]?.name).toBe("Bob");
+  });
+
+  it("survives a host handover: the new host holds the toggle", () => {
+    const roomId = freshRoomId();
+    const host = found(roomId);
+    const guest = join(roomId, host);
+
+    transferHost(roomId, host.id, host.secret, guest.id);
+    expect(setVisibility(roomId, host.id, host.secret, "public")).toEqual({
+      ok: false,
+      error: "forbidden",
+    });
+    expect(setVisibility(roomId, guest.id, guest.secret, "public")).toEqual({ ok: true });
+  });
+});
+
 describe("authentication", () => {
   it("distinguishes unknown room, non-member and bad secret", () => {
     const roomId = freshRoomId();
@@ -228,6 +394,7 @@ describe("authentication", () => {
     expect(closeRoom(roomId, guest.id, guest.secret)).toEqual(forbidden);
     expect(answerKnock(roomId, guest.id, guest.secret, "k", true)).toEqual(forbidden);
     expect(setCapacity(roomId, guest.id, guest.secret, 3)).toEqual(forbidden);
+    expect(setVisibility(roomId, guest.id, guest.secret, "public")).toEqual(forbidden);
     expect(removePeer(roomId, guest.id, guest.secret, host.id)).toEqual(forbidden);
     expect(transferHost(roomId, guest.id, guest.secret, host.id)).toEqual(forbidden);
     expect(setPin(roomId, guest.id, guest.secret, host.id)).toEqual(forbidden);

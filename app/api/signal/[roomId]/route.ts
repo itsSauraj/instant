@@ -6,6 +6,7 @@ import {
   SIGNAL_LIMITS,
   sanitizeName,
   sanitizeUid,
+  sanitizeVisibility,
   type ClientMessage,
   type ServerEvent,
   type SignalPayload,
@@ -20,6 +21,7 @@ import {
   removePeer,
   setCapacity,
   setPin,
+  setVisibility,
   streamAborted,
   transferHost,
   type ActionError,
@@ -103,6 +105,8 @@ export async function GET(request: Request, context: RouteContext) {
   const name = sanitizeName(url.searchParams.get(JOIN_PARAM.name));
   const resumeToken = url.searchParams.get(JOIN_PARAM.resume);
   const uid = sanitizeUid(url.searchParams.get(JOIN_PARAM.uid));
+  // Only honoured when this GET founds the room; see JOIN_PARAM.visibility.
+  const visibility = sanitizeVisibility(url.searchParams.get(JOIN_PARAM.visibility));
 
   let close: (() => void) | undefined;
   let conn: Connection | undefined;
@@ -135,7 +139,7 @@ export async function GET(request: Request, context: RouteContext) {
       // Emits welcome / waiting-approval / ended itself before returning.
       conn = openStream(
         roomId,
-        { name, resumeToken, uid },
+        { name, resumeToken, uid, visibility },
         { emit: write, disconnect: () => close?.() },
       );
 
@@ -219,6 +223,12 @@ export async function POST(request: Request, context: RouteContext) {
         return json({ error: "invalid-message" }, 400);
       }
       return actionResponse(setCapacity(roomId, peerId, secret, message.value));
+    }
+    case "visibility": {
+      if (message.value !== "public" && message.value !== "private") {
+        return json({ error: "invalid-message" }, 400);
+      }
+      return actionResponse(setVisibility(roomId, peerId, secret, message.value));
     }
     case "remove": {
       if (typeof message.peerId !== "string" || !message.peerId) {

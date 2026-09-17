@@ -8,6 +8,7 @@ import {
   type ModerationAction,
   type Participant,
   type PeerId,
+  type RoomVisibility,
   type ServerEvent,
   type SignalPayload,
 } from "@/lib/signal-protocol";
@@ -17,9 +18,9 @@ import {
  *
  * Three invariants drive every method here:
  *
- *  1. **The host owns the room.** Admitting, removing, pinning, resizing and
- *     closing are host-only. Anyone else may only leave, and their departure
- *     never takes the room with it.
+ *  1. **The host owns the room.** Admitting, removing, pinning, resizing,
+ *     opening it to the public and closing are host-only. Anyone else may
+ *     only leave, and their departure never takes the room with it.
  *
  *  2. **A dropped stream is not a departure.** The seat is held (`away: true`)
  *     for `awayTtlMs`; presenting the seat's `resumeToken` reclaims the same
@@ -27,9 +28,12 @@ import {
  *     actually released. This is what makes a page refresh survivable, for the
  *     host included.
  *
- *  3. **Nobody is seated without the host's word.** A GET on an existing room
- *     only queues a knock; the host answers it with `admit`. The one exception
- *     is a valid resume token, which proves the joiner already held a seat.
+ *  3. **Nobody is seated without the host's word.** In a private room a GET
+ *     only queues a knock; the host answers it with `admit`. The host's word
+ *     can also be given in advance: a *public* room seats arrivals on the spot,
+ *     and the host may flip a room either way at any time. The one exception
+ *     to both is a valid resume token, which proves the joiner already held a
+ *     seat.
  *
  * Nothing is persisted: rooms exist only in process memory, and the registry
  * hangs off `globalThis` so a dev-server module reload does not orphan seats.
@@ -82,6 +86,8 @@ type Room = {
    */
   hostUid: string;
   capacity: number;
+  /** Whether arrivals knock (`private`) or are seated at once (`public`). */
+  visibility: RoomVisibility;
   /**
    * Relay budget baseline: the largest capacity the room has ever had. The
    * budget is `maxMessagesPerParticipant * budgetCapacity` because a 7-way
@@ -188,7 +194,12 @@ function broadcast(room: Room, event: ServerEvent, exceptPeerId?: PeerId) {
 }
 
 function broadcastRoster(room: Room) {
-  broadcast(room, { t: "roster", roster: rosterOf(room), capacity: room.capacity });
+  broadcast(room, {
+    t: "roster",
+    roster: rosterOf(room),
+    capacity: room.capacity,
+    visibility: room.visibility,
+  });
 }
 
 /**
@@ -237,7 +248,7 @@ function resolveName(room: Room, raw: string): string {
   return `Guest ${room.guestCounter}`;
 }
 
-function createRoom(roomId: string, now: number): Room {
+function createRoom(roomId: string, now: number, visibility: RoomVisibility): Room {
   const room: Room = {
     id: roomId,
     members: new Map(),
@@ -245,6 +256,7 @@ function createRoom(roomId: string, now: number): Room {
     hostId: "",
     hostUid: "",
     capacity: ROOM_CAPACITY.default,
+    visibility,
     budgetCapacity: ROOM_CAPACITY.default,
     relayCount: 0,
     pinned: null,
@@ -399,9 +411,32 @@ function welcome(room: Room, member: Member, resumed: boolean): ServerEvent {
     resumeToken: member.resumeToken,
     roster: rosterOf(room),
     capacity: room.capacity,
+    visibility: room.visibility,
     resumed,
     pinned: room.pinned,
   };
+}
+
+/**
+ * Seats a newcomer who is NOT the host - an admitted knocker or a walk-in to a
+ * public room - and tells everyone. The caller has already checked capacity.
+ */
+function seatNewcomer(
+  room: Room,
+  name: string,
+  stream: StreamHandlers,
+  uid: string,
+  conn: Connection,
+): Member {
+  const member = seatMember(room, name, stream, uid);
+  conn.phase = "seated";
+  conn.peerId = member.id;
+  conn.epoch = member.epoch;
+
+  safeEmit(member.stream, welcome(room, member, false));
+  broadcast(room, { t: "peer-joined", peer: participantOf(room, member) }, member.id);
+  broadcastRoster(room);
+  return member;
 }
 
 function findByResumeToken(room: Room, token: string): Member | undefined {
@@ -444,19 +479,21 @@ function reseat(room: Room, member: Member, stream: StreamHandlers): Connection 
 }
 
 /**
- * Handles a joining GET. Exactly one of four things happens:
+ * Handles a joining GET. Exactly one of five things happens:
  *
- *  - no live room       -> the joiner founds it and is seated as host
+ *  - no live room       -> the joiner founds it (with `join.visibility`) and
+ *                          is seated as host
  *  - valid resume token -> the joiner reclaims its old seat, no knock needed
  *  - room at capacity   -> `ended room-full`, stream closed
- *  - otherwise          -> queued as a knock; the host decides
+ *  - public room        -> seated on the spot
+ *  - private room       -> queued as a knock; the host decides
  *
  * All events (welcome / waiting-approval / ended) are emitted through the
  * provided handlers before this returns, so the route stays a dumb pipe.
  */
 export function openStream(
   roomId: string,
-  join: { name: string; resumeToken: string | null; uid: string },
+  join: { name: string; resumeToken: string | null; uid: string; visibility?: RoomVisibility },
   stream: StreamHandlers,
 ): Connection {
   const now = Date.now();
@@ -479,7 +516,9 @@ export function openStream(
   }
 
   if (!room) {
-    room = createRoom(roomId, now);
+    // The founder's choice, and only the founder's: on any other path the
+    // param is simply never read.
+    room = createRoom(roomId, now, join.visibility ?? "private");
     const member = seatMember(room, resolveName(room, join.name), stream, join.uid);
     room.hostId = member.id;
     // The founder's browser id is the admin identity for the room's lifetime.
@@ -516,6 +555,13 @@ export function openStream(
     safeEmit(stream, { t: "ended", reason: "room-full" });
     safeDisconnect(stream);
     return { phase: "done", roomId };
+  }
+
+  // A public room is the host's standing "yes": walk straight in.
+  if (room.visibility === "public") {
+    const conn: Connection = { phase: "knocking", roomId };
+    seatNewcomer(room, resolveName(room, join.name), stream, join.uid, conn);
+    return conn;
   }
 
   const conn: Connection = { phase: "knocking", roomId };
@@ -701,14 +747,48 @@ export function answerKnock(
     return { ok: true };
   }
 
-  const member = seatMember(auth.room, knock.name, knock.stream, knock.uid);
-  knock.conn.phase = "seated";
-  knock.conn.peerId = member.id;
-  knock.conn.epoch = member.epoch;
+  seatNewcomer(auth.room, knock.name, knock.stream, knock.uid, knock.conn);
+  return { ok: true };
+}
 
-  safeEmit(member.stream, welcome(auth.room, member, false));
-  broadcast(auth.room, { t: "peer-joined", peer: participantOf(auth.room, member) }, member.id);
-  broadcastRoster(auth.room);
+/**
+ * Host only: opens the room to anyone with the link, or closes it back down.
+ *
+ * Opening is a standing "yes" to everyone at the door, so whoever is already
+ * knocking is seated immediately, in arrival order, while seats remain; the
+ * rest are told `room-full` exactly as a late `admit` would tell them. Closing
+ * affects arrivals only - nobody already seated is touched, which is the same
+ * rule capacity follows.
+ */
+export function setVisibility(
+  roomId: string,
+  peerId: string,
+  secret: string,
+  value: RoomVisibility,
+): ActionResult {
+  const auth = authenticateHost(roomId, peerId, secret);
+  if (!auth.ok) return auth;
+
+  const room = auth.room;
+  room.visibility = value;
+
+  if (value === "public") {
+    // Knocks iterate in insertion (arrival) order. Snapshot first: seating
+    // mutates the map.
+    for (const knock of [...room.knocks.values()]) {
+      removeKnock(room, knock);
+      if (room.members.size >= room.capacity) {
+        safeEmit(knock.stream, { t: "ended", reason: "room-full" });
+        safeDisconnect(knock.stream);
+        continue;
+      }
+      seatNewcomer(room, knock.name, knock.stream, knock.uid, knock.conn);
+    }
+  }
+
+  // Even when nobody was waiting the roster carries the new visibility, which
+  // is how every client - the host's own included - learns it took effect.
+  broadcastRoster(room);
   return { ok: true };
 }
 

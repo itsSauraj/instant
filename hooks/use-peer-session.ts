@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { MeshSession, type LinkQuality, type MeshSnapshot } from "@/lib/mesh-session";
-import { ROOM_CAPACITY, type ModerationAction, type PeerId } from "@/lib/signal-protocol";
+import {
+  ROOM_CAPACITY,
+  type ModerationAction,
+  type PeerId,
+  type RoomVisibility,
+} from "@/lib/signal-protocol";
 import { TRANSFER_LIMITS, type SendTargets } from "@/lib/transfer-contract";
 
 /** Rendered while the session object is being constructed on mount. */
@@ -12,6 +17,7 @@ const INITIAL: MeshSnapshot = {
   self: null,
   participants: [],
   capacity: ROOM_CAPACITY.default,
+  visibility: "private",
   isHost: false,
   pinnedByHost: null,
   knocks: [],
@@ -60,13 +66,19 @@ const TYPING_IDLE_MS = 1500;
  * screenOn,remoteAudioLive,remoteVideoLive}` - so those fields keep their
  * names and shapes across the mesh rewrite.
  */
-export function usePeerSession(roomId: string, displayName = "") {
+export function usePeerSession(
+  roomId: string,
+  displayName = "",
+  /** The visibility to found the room with, should this join create it.
+   *  Ignored by the server for a room that already exists. */
+  foundAs: RoomVisibility = "private",
+) {
   const [session, setSession] = useState<MeshSession | null>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingActive = useRef(false);
 
   useEffect(() => {
-    const instance = new MeshSession(roomId, displayName);
+    const instance = new MeshSession(roomId, displayName, { visibility: foundAs });
     setSession(instance);
     // Deferred a tick so StrictMode's dev-only mount/unmount/mount cycle never
     // opens a first signalling stream: it would claim a seat, then abort and
@@ -93,7 +105,7 @@ export function usePeerSession(roomId: string, displayName = "") {
       instance.leave();
       setSession(null);
     };
-  }, [roomId, displayName]);
+  }, [roomId, displayName, foundAs]);
 
   const snapshot = useSyncExternalStore(
     session ? session.subscribe : NO_SUBSCRIBE,
@@ -191,6 +203,12 @@ export function usePeerSession(roomId: string, displayName = "") {
     [session],
   );
   const setCapacity = useCallback((value: number) => session?.setCapacity(value), [session]);
+  /** Host only: open the room to anyone with the link (`public`) or make
+   *  arrivals knock (`private`). `visibility` on the snapshot reflects it. */
+  const setVisibility = useCallback(
+    (value: RoomVisibility) => session?.setVisibility(value),
+    [session],
+  );
   const removePeer = useCallback((peerId: PeerId) => session?.removePeer(peerId), [session]);
   const pinPeer = useCallback((peerId: PeerId | null) => session?.pin(peerId), [session]);
   /** Host only: moderate one peer's devices (null = everyone else's). The
@@ -269,6 +287,7 @@ export function usePeerSession(roomId: string, displayName = "") {
     stopScreenAudio,
     admit,
     setCapacity,
+    setVisibility,
     removePeer,
     pinPeer,
     moderate,

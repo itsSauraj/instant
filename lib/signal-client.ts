@@ -6,6 +6,7 @@ import {
   type ClientMessage,
   type ModerationAction,
   type PeerId,
+  type RoomVisibility,
   type ServerEvent,
   type SignalPayload,
 } from "@/lib/signal-protocol";
@@ -53,10 +54,15 @@ export class SignalClient {
     return this.credentials?.peerId ?? null;
   }
 
-  /** First join: founds the room, or knocks and waits for the host. Resolves
-   *  when the stream ends, terminally or not. */
-  async connect(name: string) {
-    await this.open({ [JOIN_PARAM.name]: name, [JOIN_PARAM.uid]: getUserId() });
+  /** First join: founds the room (with the given visibility), walks into a
+   *  public one, or knocks on a private one. Resolves when the stream ends,
+   *  terminally or not. */
+  async connect(name: string, visibility: RoomVisibility = "private") {
+    await this.open({
+      [JOIN_PARAM.name]: name,
+      [JOIN_PARAM.uid]: getUserId(),
+      [JOIN_PARAM.visibility]: visibility,
+    });
   }
 
   /** Reclaims an existing seat after a reload or stream drop. A valid token
@@ -181,6 +187,11 @@ export class SignalClient {
   /** Host only: change the participant limit. */
   async setCapacity(value: number) {
     await this.post({ t: "capacity", value });
+  }
+
+  /** Host only: open the room to anyone with the link, or make arrivals knock. */
+  async setVisibility(value: RoomVisibility) {
+    await this.post({ t: "visibility", value });
   }
 
   /** Host only: eject a participant. */

@@ -24,6 +24,7 @@ import {
   type ModerationAction,
   type Participant,
   type PeerId,
+  type RoomVisibility,
   type ServerEvent,
   type SignalPayload,
 } from "@/lib/signal-protocol";
@@ -138,6 +139,10 @@ export type MeshSnapshot = {
    *  Away peers stay listed - their seat is held while they reload. */
   participants: MeshParticipant[];
   capacity: number;
+  /** Whether arrivals knock (`private`) or walk straight in (`public`).
+   *  Authoritative from the server; the host's toggle is applied
+   *  optimistically and the next roster confirms or corrects it. */
+  visibility: RoomVisibility;
   isHost: boolean;
   pinnedByHost: PeerId | null;
   /** Host only: pending join requests. Always empty for guests. */
@@ -250,6 +255,7 @@ export class MeshSession {
   private self: Participant | null = null;
   private isHost = false;
   private capacity: number = ROOM_CAPACITY.default;
+  private visibility: RoomVisibility;
   private pinnedByHost: PeerId | null = null;
 
   /** Roster minus self, keyed by peer id. Authoritative (server-driven). */
@@ -320,7 +326,14 @@ export class MeshSession {
   constructor(
     private readonly roomId: string,
     private readonly displayName = "",
+    /**
+     * `visibility` is the room the creator WANTS if this join turns out to
+     * found one. The server reads it only on the founding GET; when the room
+     * already exists the authoritative value arrives in `welcome` instead.
+     */
+    options: { visibility?: RoomVisibility } = {},
   ) {
+    this.visibility = options.visibility ?? "private";
     this.doc = this.loadDoc();
     this.infraReady = this.initTransferInfra();
     this.snapshot = this.build();
@@ -560,6 +573,7 @@ export class MeshSession {
       self: this.self,
       participants,
       capacity: this.capacity,
+      visibility: this.visibility,
       isHost: this.isHost,
       pinnedByHost: this.pinnedByHost,
       knocks: this.knocks,
@@ -655,7 +669,7 @@ export class MeshSession {
     if (token) {
       void this.signal.resume(name || "Guest", token);
     } else {
-      void this.signal.connect(name || "Guest");
+      void this.signal.connect(name || "Guest", this.visibility);
     }
   }
 
@@ -814,7 +828,7 @@ export class MeshSession {
         this.capacity = event.capacity;
         this.pinnedByHost = event.pinned;
         storeResumeToken(this.roomId, event.resumeToken);
-        this.reconcileRoster(event.roster, event.capacity);
+        this.reconcileRoster(event.roster, event.capacity, event.visibility);
         break;
       }
 
@@ -824,7 +838,7 @@ export class MeshSession {
       }
 
       case "roster": {
-        this.reconcileRoster(event.roster, event.capacity);
+        this.reconcileRoster(event.roster, event.capacity, event.visibility);
         break;
       }
 
@@ -978,8 +992,13 @@ export class MeshSession {
    * - a reload replays it, and the server resends it on every membership or
    * capacity change - so every step is "ensure", never "assume new".
    */
-  private reconcileRoster(roster: Participant[], capacity: number) {
+  private reconcileRoster(
+    roster: Participant[],
+    capacity: number,
+    visibility: RoomVisibility,
+  ) {
     this.capacity = capacity;
+    this.visibility = visibility;
 
     const seen = new Set<PeerId>();
     for (const p of roster) {
@@ -1720,6 +1739,22 @@ export class MeshSession {
   setCapacity(value: number) {
     if (!this.isHost || this.phase === "ended") return;
     void this.signal?.setCapacity(value);
+  }
+
+  /**
+   * Host only: open the room to anyone with the link, or make arrivals knock
+   * again. Applied optimistically so the toggle answers the click; the roster
+   * the server sends back is what actually holds. Opening seats whoever is
+   * waiting, so the local knock list is cleared for the same reason `admit`
+   * clears one entry: the server is about to resolve them all.
+   */
+  setVisibility(value: RoomVisibility) {
+    if (!this.isHost || this.phase === "ended") return;
+    if (this.visibility === value) return;
+    this.visibility = value;
+    if (value === "public") this.knocks = [];
+    void this.signal?.setVisibility(value);
+    this.emit();
   }
 
   /** Host only: eject a participant. The `peer-left` event confirms. */

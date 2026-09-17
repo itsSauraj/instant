@@ -7,9 +7,22 @@ import {
   isPolite,
   sanitizeName,
   sanitizeUid,
+  sanitizeVisibility,
   videoBudget,
   type Participant,
 } from "@/lib/signal-protocol";
+
+describe("sanitizeVisibility", () => {
+  it("accepts only the literal public, and falls back to private for anything else", () => {
+    expect(sanitizeVisibility("public")).toBe("public");
+    expect(sanitizeVisibility("private")).toBe("private");
+    expect(sanitizeVisibility("PUBLIC")).toBe("private");
+    expect(sanitizeVisibility("open")).toBe("private");
+    expect(sanitizeVisibility(null)).toBe("private");
+    expect(sanitizeVisibility(undefined)).toBe("private");
+    expect(sanitizeVisibility(1)).toBe("private");
+  });
+});
 
 const participant = (id: string, joinedAt: number): Participant => ({
   id,
