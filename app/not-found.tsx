@@ -15,8 +15,9 @@ export default function NotFound() {
           </span>
           <h1 className="mt-5 text-lg font-semibold">That session code isn&apos;t valid</h1>
           <p className="text-muted-foreground mt-1.5 text-sm">
-            Invite links look like <span className="font-mono">/room/k3f9-mq2t-8xbv-7rn0</span>.
-            Check the link you were sent, or start a session of your own.
+            Invite links look like <span className="font-mono">/room/k3f9-mq2t</span>, and a code
+            of your own is 4 to 32 letters and numbers. Check the link you were sent, or start a
+            session of your own.
           </p>
           <Button asChild className="mt-6 w-full">
             <Link href="/">Go to the home page</Link>

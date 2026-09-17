@@ -53,7 +53,7 @@ export const MOBILE_VIEWPORT = { width: 390, height: 844 };
 
 const ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
 export const randomRoomId = () =>
-  Array.from({ length: 16 }, () => ALPHABET[Math.floor(Math.random() * 32)]).join("");
+  Array.from({ length: 8 }, () => ALPHABET[Math.floor(Math.random() * 32)]).join("");
 
 export function parseCliArgs(argv = process.argv) {
   const base = argv.slice(2).find((arg) => arg.startsWith("http")) ?? "http://127.0.0.1:3111";

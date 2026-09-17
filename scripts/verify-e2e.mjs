@@ -102,8 +102,8 @@ async function run() {
 
   const roomUrl = await pair(a, b);
   check(
-    "session code is 16 chars from the safe alphabet",
-    /\/room\/[0-9a-hjkmnp-tv-z]{16}/.test(roomUrl),
+    "session code is 8 chars from the safe alphabet",
+    /\/room\/[0-9a-hjkmnp-tv-z]{8}(?:[/?#]|$)/.test(roomUrl),
     roomUrl,
   );
   check("host and guest see each other in the roster", true);

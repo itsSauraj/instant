@@ -26,8 +26,12 @@ export function extractRoomId(scanned: string): string | null {
   const fromPath = /\/room\/([^/?#\s]+)/i.exec(text);
   if (fromPath) candidates.push(fromPath[1]);
 
-  // A bare code, possibly hyphen-grouped as the UI displays it.
-  candidates.push(text);
+  // A bare code, possibly hyphen- or space-grouped as the UI displays it. Now
+  // that custom codes are any run of letters and digits, the bare form is
+  // accepted only when the WHOLE payload is such a run: `https://evil.example`
+  // would otherwise normalise to a plausible-looking code and land the scanner
+  // in a room nobody meant to open.
+  if (/^[0-9a-z]+(?:[\s-]+[0-9a-z]+)*$/i.test(text)) candidates.push(text);
 
   for (const candidate of candidates) {
     const id = normalizeRoomId(candidate);

@@ -777,7 +777,9 @@ async function testAuthAndValidation() {
   await settle();
   check("the room survived the forged close", !host.closed && !b.closed);
 
-  const badRoom = await fetch(`${BASE}/api/signal/not-a-real-room-id`, {
+  // Custom codes made `not-a-real-room-id` a perfectly good room; only length
+  // can make a code malformed now (under 4 or over 32 letters and digits).
+  const badRoom = await fetch(`${BASE}/api/signal/ab`, {
     headers: { accept: "text/event-stream" },
   });
   const badJson = await post(room, host.creds, undefined);

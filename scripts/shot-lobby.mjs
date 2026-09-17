@@ -13,10 +13,10 @@ const BASE = process.argv[2] ?? "http://127.0.0.1:3111";
 const OUT = "artifacts/screenshots";
 mkdirSync(OUT, { recursive: true });
 
-/** Mirrors lib/ids.ts: 16 chars from a Crockford-style alphabet. */
+/** Mirrors lib/ids.ts: 8 chars from a Crockford-style alphabet. */
 const ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
 const randomRoomId = () =>
-  Array.from({ length: 16 }, () => ALPHABET[Math.floor(Math.random() * 32)]).join("");
+  Array.from({ length: 8 }, () => ALPHABET[Math.floor(Math.random() * 32)]).join("");
 
 const browser = await chromium.launch({ headless: true });
 let failures = 0;
