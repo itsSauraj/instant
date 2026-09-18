@@ -10,6 +10,7 @@ import {
   LogOut,
   Settings,
   StickyNote,
+  UserPlus,
   Video,
   X,
 } from "lucide-react";
@@ -23,7 +24,7 @@ import { EndSessionDialog } from "@/components/room/end-session-dialog";
 import { FilesPanel } from "@/components/room/files-panel";
 import { HostPanel } from "@/components/room/host-panel";
 import { HostTransferDialog, type TransferIntent } from "@/components/room/host-transfer-dialog";
-import { InviteDialog } from "@/components/room/invite-dialog";
+import { InvitePanel } from "@/components/room/invite-panel";
 import { LobbyOverlay } from "@/components/room/lobby-overlay";
 import { MediaPanel } from "@/components/room/media-panel";
 import { NotesPanel } from "@/components/room/notes-panel";
@@ -31,6 +32,7 @@ import { AdmitQueue } from "@/components/room/admit-queue";
 import { JoinGate } from "@/components/room/join-gate";
 import { ParticipantsPanel } from "@/components/room/participants-panel";
 import { Presence } from "@/components/room/presence";
+import { SidePanel, SidePanelBody } from "@/components/room/side-panel";
 import { WaitingApproval } from "@/components/room/waiting-approval";
 import { SoundToggle } from "@/components/room/sound-toggle";
 import { VerifiedShield } from "@/components/room/verified-shield";
@@ -53,10 +55,15 @@ import { prettyRoomId } from "@/lib/ids";
 import type { PeerId, RoomVisibility } from "@/lib/signal-protocol";
 import { cn } from "@/lib/utils";
 
-type TabKey = "notes" | "files" | "media" | "doc" | "settings";
+type TabKey = "notes" | "files" | "media" | "doc";
 
-/** The content tabs at the top of the rail; Settings has its own trigger at
- *  the bottom of the rail, next to the quick controls it belongs with. */
+/** What the right-hand drawer is showing. One drawer, three contents: the
+ *  participants list, the invite link/code/QR, and the session settings. */
+type SideView = "participants" | "invite" | "settings";
+
+/** The content tabs at the top of the rail. Settings is not a tab: it opens
+ *  the right-hand drawer from a button at the bottom of the rail, next to the
+ *  quick controls it belongs with. */
 const TABS: { key: TabKey; label: string; icon: typeof StickyNote }[] = [
   { key: "notes", label: "Notes", icon: StickyNote },
   { key: "doc", label: "Doc", icon: FileText },
@@ -127,13 +134,20 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
   // The creator may close the waiting overlay and use the room alone; the
   // Invite button in the header brings the same content back at any time.
   const [lobbyDismissed, setLobbyDismissed] = useState(false);
-  // Right-hand participants drawer, opened by clicking the presence pill.
-  const [participantsOpen, setParticipantsOpen] = useState(false);
-  // Modal only when the host opened it themselves; see the knock effect below.
-  const [participantsModal, setParticipantsModal] = useState(true);
+  // The right-hand drawer: participants (presence pill), invite (header
+  // button) or settings (rail button). Null when closed.
+  const [sideView, setSideView] = useState<SideView | null>(null);
+  // Modal only when the person opened it themselves; see the knock effect below.
+  const [sideModal, setSideModal] = useState(true);
+  const closeSide = useCallback(() => setSideView(null), []);
   const openParticipants = useCallback(() => {
-    setParticipantsModal(true);
-    setParticipantsOpen(true);
+    setSideModal(true);
+    setSideView("participants");
+  }, []);
+  /** Header and rail buttons toggle: a second click on the same one closes. */
+  const toggleSide = useCallback((view: SideView) => {
+    setSideModal(true);
+    setSideView((current) => (current === view ? null : view));
   }, []);
   const scope = useRef<HTMLDivElement>(null);
 
@@ -152,8 +166,8 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
   const seenKnocks = useRef(0);
   useEffect(() => {
     if (knockCount > seenKnocks.current) {
-      setParticipantsOpen(true);
-      setParticipantsModal(false);
+      setSideView("participants");
+      setSideModal(false);
     }
     seenKnocks.current = knockCount;
   }, [knockCount]);
@@ -394,7 +408,6 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
     // doc is one continuously-edited surface rather than a queue of events.
     media: 0,
     doc: 0,
-    settings: 0,
   } satisfies Record<TabKey, number>;
 
   const transferRunning = session.transfers.some(
@@ -452,7 +465,18 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
             pending={session.isHost ? session.knocks.length : 0}
             onOpenList={openParticipants}
           />
-          <InviteDialog roomId={roomId} inviteUrl={inviteUrl} visibility={session.visibility} />
+          {/* Opens the right-hand drawer rather than a modal, so inviting
+              reads as one more view of the room, next to the participants. */}
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn("gap-1.5", sideView === "invite" && "bg-accent text-accent-foreground")}
+            aria-pressed={sideView === "invite"}
+            onClick={() => toggleSide("invite")}
+          >
+            <UserPlus className="size-3.5" />
+            <span className="hidden sm:inline">Invite</span>
+          </Button>
           <ConnectionStatus phase={session.phase} peers={session.participants.length} />
         </div>
       </header>
@@ -562,22 +586,25 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
               </TooltipContent>
             </Tooltip>
             <span aria-hidden className="bg-border my-0.5 h-px w-5" />
-            {/* A second TabsList inside the same Tabs root: the Settings tab
-                lives with the controls it configures, not among the content. */}
-            <TabsList className="border-0 bg-transparent p-0 backdrop-blur-none">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <TabsTrigger
-                    value="settings"
-                    aria-label="Settings"
-                    className="size-9 flex-none p-0"
-                  >
-                    <Settings />
-                  </TabsTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="right">Settings</TooltipContent>
-              </Tooltip>
-            </TabsList>
+            {/* Settings live in the right-hand drawer, not in a content tab:
+                they are about the room, not something you read alongside the
+                notes, so they open beside the room like the participants do.
+                The button sits with the quick controls it configures. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Settings"
+                  aria-pressed={sideView === "settings"}
+                  onClick={() => toggleSide("settings")}
+                  className={cn(sideView === "settings" && "bg-card text-foreground shadow-sm")}
+                >
+                  <Settings />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Settings</TooltipContent>
+            </Tooltip>
           </div>
         </aside>
 
@@ -644,44 +671,14 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
           />
         </TabsContent>
 
-        <TabsContent value="settings" forceMount hidden={tab !== "settings"} className="min-h-0">
-          <div className="panel scroll-slim h-full space-y-4 overflow-y-auto p-4 sm:p-5">
-            <h2 className="text-sm font-semibold">Settings</h2>
-
-            {session.isHost ? (
-              /* `roster` rather than `session.participants`: the snapshot keeps
-                 self out of that list, and the capacity readout must count
-                 everyone. */
-              <HostPanel
-                capacity={session.capacity}
-                visibility={session.visibility}
-                participants={roster}
-                onCapacityChange={session.setCapacity}
-                onVisibilityChange={session.setVisibility}
-                onTransferHost={() => {
-                  // Transfer-only: the picker opens in "stay" mode, so the
-                  // confirm copy promises exactly what happens - no leave.
-                  setTransferIntent("stay");
-                  setTransferOpen(true);
-                }}
-                onClose={session.closeSession}
-                className="mt-0"
-              />
-            ) : (
-              <p className="text-muted-foreground text-sm">
-                Session settings (who can join, the participant limit, closing the room) belong to
-                the host. Sound and theme controls live at the bottom of the left rail.
-              </p>
-            )}
-          </div>
-        </TabsContent>
         </div>
       </Tabs>
 
+      {/* The right-hand drawer, one content at a time. */}
       <ParticipantsPanel
-        open={participantsOpen}
-        modal={participantsModal}
-        onClose={() => setParticipantsOpen(false)}
+        open={sideView === "participants"}
+        modal={sideModal}
+        onClose={closeSide}
         self={session.self}
         participants={session.participants}
         isHost={session.isHost}
@@ -691,6 +688,52 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
         getLinkQuality={session.getLinkQuality}
         verification={verification}
       />
+
+      <SidePanel
+        open={sideView === "invite"}
+        modal={sideModal}
+        title="Invite"
+        subtitle={`${VISIBILITY_COPY[session.visibility].label} session`}
+        onClose={closeSide}
+      >
+        <SidePanelBody>
+          <InvitePanel roomId={roomId} inviteUrl={inviteUrl} visibility={session.visibility} />
+        </SidePanelBody>
+      </SidePanel>
+
+      <SidePanel
+        open={sideView === "settings"}
+        modal={sideModal}
+        title="Settings"
+        onClose={closeSide}
+      >
+        <SidePanelBody>
+          {session.isHost ? (
+            /* `roster` rather than `session.participants`: the snapshot keeps
+               self out of that list, and the capacity readout must count
+               everyone. */
+            <HostPanel
+              capacity={session.capacity}
+              visibility={session.visibility}
+              participants={roster}
+              onCapacityChange={session.setCapacity}
+              onVisibilityChange={session.setVisibility}
+              onTransferHost={() => {
+                // Transfer-only: the picker opens in "stay" mode, so the
+                // confirm copy promises exactly what happens - no leave.
+                setTransferIntent("stay");
+                setTransferOpen(true);
+              }}
+              onClose={session.closeSession}
+            />
+          ) : (
+            <p className="text-muted-foreground text-sm">
+              Session settings (who can join, the participant limit, closing the room) belong to
+              the host. Sound and theme controls live at the bottom of the left rail.
+            </p>
+          )}
+        </SidePanelBody>
+      </SidePanel>
 
       {session.phase === "lobby" && !lobbyDismissed ? (
         <LobbyOverlay

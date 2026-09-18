@@ -26,6 +26,10 @@ import { cn } from "@/lib/utils";
  * (delegating that right no longer exists), so the close button lives here and
  * nowhere else, behind an explicit confirmation.
  *
+ * Laid out as a single column: this renders inside the right-hand Settings
+ * drawer, which is 20rem wide, so every row is its explanation on top and its
+ * control underneath rather than the two fighting for one line.
+ *
  * Pinning is deliberately NOT here. A pin is a property of a person's video, so
  * it belongs on their tile in the Audio & video grid where you can see who you
  * are pinning - putting it in a dropdown here divorced it from the thing it
@@ -58,23 +62,13 @@ export function HostPanel({
   className?: string;
 }) {
   return (
-    <section
-      aria-label="Host controls"
-      className={cn("panel mt-3 space-y-3 px-4 py-3", className)}
-    >
+    <section aria-label="Host controls" className={cn("space-y-4", className)}>
       {/* Admission first: it is the setting most likely to be changed
           mid-session ("just let everyone in") and the one with the widest
           consequence, so it should not hide below the stepper. */}
-      <div role="group" aria-label="Who can join" className="space-y-1.5">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <p className="min-w-0 flex-1 text-sm">Who can join</p>
-          <VisibilityToggle
-            value={visibility}
-            onChange={onVisibilityChange}
-            size="sm"
-            className="w-auto"
-          />
-        </div>
+      <div role="group" aria-label="Who can join" className="space-y-2">
+        <p className="text-sm font-medium">Who can join</p>
+        <VisibilityToggle value={visibility} onChange={onVisibilityChange} size="sm" />
         <p className="text-muted-foreground text-xs">
           {VISIBILITY_COPY[visibility].summary}
           {visibility === "public"
@@ -96,12 +90,12 @@ export function HostPanel({
       {/* Transfer WITHOUT leaving. The other handover (transfer, then leave)
           lives behind the rail's End session control; this one exists for the
           host who wants to stay on the call but stop holding the keys. */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="text-muted-foreground min-w-0 flex-1 text-sm">
-          Hand the host role to someone else and stay in the session as a regular
-          participant. Nothing changes until the room confirms the handover.
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Transfer hosting</p>
+        <p className="text-muted-foreground text-xs">
+          Hand the host role to someone else and stay in the session as a regular participant.
+          Nothing changes until the room confirms the handover.
         </p>
-
         <Button
           type="button"
           variant="outline"
@@ -117,11 +111,12 @@ export function HostPanel({
 
       <Separator />
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="text-muted-foreground min-w-0 flex-1 text-sm">
-          Ending the session disconnects everyone at once. To leave while the session
-          continues for the others, use the End session control in the left rail - it lets
-          you hand hosting to someone first.
+      <div className="space-y-2">
+        <p className="text-sm font-medium">Close the session</p>
+        <p className="text-muted-foreground text-xs">
+          Ending the session disconnects everyone at once. To leave while the session continues
+          for the others, use the End session control in the left rail - it lets you hand hosting
+          to someone first.
         </p>
 
         <AlertDialog>

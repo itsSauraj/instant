@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, DoorOpen, Shield, ShieldCheck, UserX, X } from "lucide-react";
 
 import { ParticipantAvatar } from "@/components/room/presence";
+import { SidePanel } from "@/components/room/side-panel";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Knock, LinkQuality, MeshParticipant } from "@/lib/mesh-session";
@@ -118,55 +119,20 @@ export function ParticipantsPanel({
     // constantly and resetting the poll on every render would defeat it.
   }, [open, peerKey, getLinkQuality]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
   if (!open) return null;
 
   const headcount = participants.length + (self ? 1 : 0);
 
   return (
-    <>
-      {/*
-        A scrim, because this panel is anchored to the right edge -- exactly
-        where the video strip lives. Without it the panel silently covers the
-        strip's per-tile controls: clicks land on the panel and the buttons
-        underneath simply appear dead. The scrim makes the modality visible and
-        gives a click-anywhere-to-close escape, alongside Escape above.
-      */}
-      {modal ? (
-        <div
-          aria-hidden
-          onClick={onClose}
-          className="fixed inset-0 z-30 bg-black/20 backdrop-blur-[1px]"
-        />
-      ) : null}
-      <aside
-        role="dialog"
-        aria-modal={modal || undefined}
-        aria-label="Participants"
-        className="panel fixed inset-y-0 right-0 z-40 flex w-80 max-w-[85vw] flex-col rounded-none border-l shadow-xl sm:inset-y-3 sm:right-3 sm:rounded-xl sm:border"
-      >
-      <header className="flex shrink-0 items-center gap-2 border-b p-3 sm:px-4">
-        <h2 className="text-sm font-semibold">Participants</h2>
-        <span className="text-muted-foreground text-xs">{headcount} in session</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onClose}
-          aria-label="Close participants"
-          className="ml-auto size-7"
-        >
-          <X className="size-4" />
-        </Button>
-      </header>
-
+    // The shared right-hand drawer (scrim, Escape, close button); this panel
+    // only supplies the participants content.
+    <SidePanel
+      open={open}
+      modal={modal}
+      title="Participants"
+      subtitle={`${headcount} in session`}
+      onClose={onClose}
+    >
       {isHost && knocks.length > 0 ? (
         <section
           aria-label="People asking to join"
@@ -352,8 +318,7 @@ export function ParticipantsPanel({
       <p className="text-muted-foreground shrink-0 border-t p-3 text-xs sm:px-4">
         Strength is the direct link from this device to each person.
       </p>
-      </aside>
-    </>
+    </SidePanel>
   );
 }
 

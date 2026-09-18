@@ -314,8 +314,11 @@ const presencePill = (page) =>
   page.getByRole("button", { name: /show all \d+ participants?/i }).first();
 const participantsPanel = (page) =>
   page.locator('[role="dialog"][aria-label="Participants" i]').first();
-const closeParticipants = (page) =>
-  page.getByRole("button", { name: /close participants/i }).first();
+/** The one right-hand drawer, whatever it currently shows (participants,
+ *  invite or settings). All three sit on the same scrim and block the same
+ *  clicks, so anything that needs the room clear closes whichever is open. */
+const sidePanel = (page) => page.locator('[data-slot="side-panel"]').first();
+const closeSidePanel = (page) => page.locator('[data-slot="side-panel-close"]').first();
 
 /**
  * Text of the participants list. If no name-bearing region is currently
@@ -336,7 +339,10 @@ export async function rosterSnapshot(page) {
   }
   if (texts.length > 0) return texts.join(" | ");
 
-  // Nothing inline: open the side panel, read it, and put things back.
+  // Nothing inline: open the side panel, read it, and put things back. The
+  // drawer may currently be showing Invite or Settings, whose scrim would
+  // swallow the click on the pill, so clear it first.
+  await closeParticipantsIfOpen(page);
   const pill = presencePill(page);
   if (!(await pill.isVisible().catch(() => false))) return null;
   await pill.click({ timeout: 2000 }).catch(() => {});
@@ -356,9 +362,11 @@ export async function rosterSnapshot(page) {
  * the right of the page and swallows clicks aimed at what is underneath.
  */
 export async function closeParticipantsIfOpen(page) {
-  const panel = participantsPanel(page);
+  // Named for its original job; it now closes any content of the right-hand
+  // drawer, since the invite and settings views block the room the same way.
+  const panel = sidePanel(page);
   if (!(await panel.isVisible().catch(() => false))) return;
-  await closeParticipants(page).click({ timeout: 1500 }).catch(() => {});
+  await closeSidePanel(page).click({ timeout: 1500 }).catch(() => {});
   if (await panel.isVisible().catch(() => false)) {
     await page.keyboard.press("Escape").catch(() => {});
   }
@@ -467,7 +475,7 @@ export const waitingForApproval = (page) => page.getByText(KNOCK_WAIT_TEXT).firs
 export const leaveButton = (page) => page.getByRole("button", { name: /leave/i }).first();
 
 /**
- * Drives the host's deliberate close: Settings tab -> "Close session for
+ * Drives the host's deliberate close: Settings drawer -> "Close session for
  * everyone" -> the confirmation dialog's "Close for everyone".
  */
 export async function closeRoomAsHost(host, { timeout = 20_000 } = {}) {
@@ -496,9 +504,25 @@ export async function activateTab(page, namePattern) {
   });
 }
 
-/** Opens the Settings rail tab, where the host controls live. */
+/**
+ * Opens Settings, where the host controls live. It is the right-hand drawer
+ * now (the gear at the bottom of the rail toggles it), so this is a no-op when
+ * it is already showing -- a second click would close it.
+ */
 export async function openSettings(page) {
-  return activateTab(page, /settings/i);
+  const panel = page.locator('[role="dialog"][aria-label="Settings" i]').first();
+  const button = page.getByRole("button", { name: /^settings$/i }).first();
+  // NOT clickUntil: the button is a toggle, so a retry that lands while a
+  // slow render is still opening the drawer closes it again. Click once and
+  // give the drawer time to appear before deciding the click was swallowed.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    if (await panel.isVisible().catch(() => false)) return true;
+    await closeParticipantsIfOpen(page);
+    if (!(await button.isVisible().catch(() => false))) return false;
+    await button.click({ timeout: 2000 }).catch(() => {});
+    await panel.waitFor({ timeout: 3000 }).catch(() => {});
+  }
+  return panel.isVisible().catch(() => false);
 }
 
 /**
@@ -509,24 +533,24 @@ export async function openSettings(page) {
  */
 export async function ensureCapacity(host, target, { timeout = 25_000 } = {}) {
   const group = host.page.locator('[role="group"][aria-label="Participant limit" i]').first();
-  await closeParticipantsIfOpen(host.page);
   const read = async () => {
-    const text = (await group.innerText().catch(() => "")).replace(/\s+/g, " ");
+    // The stepper lives in the Settings drawer and is UNMOUNTED while that is
+    // closed (it used to be a hidden tab that innerText could still read), so
+    // a locator wait here must be short or a closed drawer eats the budget.
+    const text = (await group.innerText({ timeout: 1000 }).catch(() => "")).replace(/\s+/g, " ");
     const match = /(\d+)\s*of\s*\d+/.exec(text);
     return match ? Number(match[1]) : null;
   };
   const raise = host.page.getByRole("button", { name: /raise the participant limit/i }).first();
   const deadline = Date.now() + timeout;
   for (;;) {
+    // Keep steering back to the drawer: anything else the suite did in between
+    // (reading the roster, switching tabs) closes it.
+    await openSettings(host.page);
     const current = await read();
     if (current !== null && current >= target) return current;
     if (Date.now() > deadline) {
       throw new Error(`capacity display never reached ${target} (currently ${current})`);
-    }
-    // The stepper lives in the Settings tab; keep steering back to it, since
-    // innerText reads through a hidden panel but clicks need it active.
-    if (!(await raise.isVisible().catch(() => false))) {
-      await openSettings(host.page);
     }
     await raise.click({ timeout: 2000 }).catch(() => {});
     await wait(400);
