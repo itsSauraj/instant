@@ -127,8 +127,9 @@ export default function GuidePage() {
               lead="A link, a code, and a QR - all generated on your device."
             >
               <p>
-                The invite dialog and the lobby offer three forms of the same thing: the link, the
-                bare code, and a QR code. The QR is drawn locally in your browser, never fetched
+                The Invite panel (the button in the room header opens it beside the room) and the
+                waiting screen offer three forms of the same thing: the link, the bare code, and a
+                QR code. The QR is drawn locally in your browser, never fetched
                 from a hosted image service - the link <strong>is</strong> the session credential,
                 so sending it to a third party to render a picture would hand your room away.
               </p>
@@ -205,10 +206,15 @@ export default function GuidePage() {
               lead="Quick messages beside a single living document."
             >
               <p>
-                Notes are markdown messages: a formatting toolbar with keyboard shortcuts,
-                author-labelled bubbles, and typing indicators. They exist only in the
-                participants&apos; browsers, for the length of the session - there is no history
-                on any server because no server ever sees them.
+                Notes are markdown messages written in a field that shows the formatting as you
+                type: <code className="text-foreground font-mono text-xs">**bold**</code> turns
+                bold on the spot, <code className="text-foreground font-mono text-xs">- </code>{" "}
+                starts a list, three backticks open a code block, and the toolbar and Slack-style
+                shortcuts toggle the same things. Enter sends; Shift+Enter breaks a line; inside a
+                list or code block Enter keeps editing and Ctrl+Enter sends. What travels to the
+                others is plain markdown, rendered into author-labelled bubbles with typing
+                indicators. Notes exist only in the participants&apos; browsers, for the length of
+                the session - there is no history on any server because no server ever sees them.
               </p>
               <p>
                 The shared doc is one live-synced text everyone can edit. Your browser keeps its
