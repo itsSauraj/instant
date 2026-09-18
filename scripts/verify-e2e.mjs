@@ -171,20 +171,41 @@ async function run() {
   await b.page.getByLabel("Note", { exact: true }).press("Enter");
   await a.page.getByText("reply from Ben").waitFor({ timeout: 10_000 });
   check("Enter sends, and B's reply arrives at A", true);
-  check(
-    "composer clears after sending",
-    (await b.page.getByLabel("Note", { exact: true }).inputValue()) === "",
-  );
+  // The composer is a rich-text field (contenteditable), so its content is
+  // read as text rather than as an input value. Such fields keep trailing
+  // spaces as U+00A0; normalise those to plain spaces.
+  const composerText = async (page) =>
+    (await page.getByLabel("Note", { exact: true }).innerText()).replace(/ /g, " ");
+  check("composer clears after sending", (await composerText(b.page)).trim() === "");
 
   await shot(a.page, "pair-03-notes.png");
 
   await b.page.getByLabel("Note", { exact: true }).fill("line one");
   await b.page.getByLabel("Note", { exact: true }).press("Shift+Enter");
+  await b.page.getByLabel("Note", { exact: true }).pressSequentially("line two");
   check(
     "Shift+Enter inserts a newline instead of sending",
-    (await b.page.getByLabel("Note", { exact: true }).inputValue()).includes("\n"),
+    /line one\s*\n\s*line two/.test(await composerText(b.page)) &&
+      !(await a.page.getByText("line one").isVisible().catch(() => false)),
   );
   await b.page.getByLabel("Note", { exact: true }).fill("");
+
+  // Formatting renders as you type: the markers disappear and the text is
+  // bold in the field itself, then arrives bold on the other side.
+  await b.page.getByLabel("Note", { exact: true }).pressSequentially("this is **loud** text");
+  const liveBold = b.page.getByLabel("Note", { exact: true }).locator("strong");
+  check(
+    "typing **bold** renders bold in the composer, without the markers",
+    (await liveBold.count()) === 1 &&
+      (await liveBold.first().innerText()) === "loud" &&
+      !(await composerText(b.page)).includes("**"),
+    await composerText(b.page),
+  );
+  await b.page.getByLabel("Note", { exact: true }).press("Enter");
+  await a.page.locator('[data-slot="note"] strong', { hasText: "loud" }).first().waitFor({
+    timeout: 10_000,
+  });
+  check("the bold note arrives rendered bold at the other side", true);
 
   await a.page.getByLabel("Note", { exact: true }).fill("about to send");
   await b.page.getByText(/typing/i).first().waitFor({ timeout: 8_000 });
