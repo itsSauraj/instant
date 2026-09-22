@@ -214,9 +214,14 @@ async function run() {
   await liveCode.first().waitFor({ timeout: 5000 }).catch(() => {});
   check("typing ``` opens a code block in the composer", (await liveCode.count()) === 1);
   await b.page.getByLabel("Note", { exact: true }).pressSequentially("print('hi')");
-  const picker = b.page.getByLabel("Code language");
+  const picker = b.page.getByRole("combobox", { name: "Code language" });
   check("the code block offers a language picker", await picker.isVisible().catch(() => false));
-  await picker.selectOption("python").catch(() => {});
+  await picker.click();
+  await b.page.getByRole("option", { name: "Python", exact: true }).click();
+  check(
+    "picking a language updates the picker",
+    /python/i.test(await picker.innerText().catch(() => "")),
+  );
   await b.page.getByLabel("Note", { exact: true }).press("Control+Enter");
   const receivedCode = a.page.locator('[data-slot="note"] pre code', { hasText: "print" }).first();
   await receivedCode.waitFor({ timeout: 10_000 });

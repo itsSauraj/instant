@@ -67,31 +67,31 @@ function CodeBlock({
     ? (codeChild.props as { className?: string }).className?.match(/language-([\w+-]+)/)?.[1]
     : undefined;
 
+  // A small card: a header strip with the language on the left and the action
+  // on the right, the code underneath. Nothing floats over the code any more,
+  // so a short first line and a long language name no longer collide. The
+  // composer's live code block shares these classes (see globals.css).
   return (
-    <div className="group/code relative">
-      <pre ref={preRef} className={cn("scroll-slim", className)} {...props}>
-        {children}
-      </pre>
-      <div className="absolute top-1.5 right-1.5 flex items-center gap-1.5">
-        {language ? (
-          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[0.6rem] tracking-wide text-zinc-400 uppercase">
-            {language}
-          </span>
-        ) : null}
+    <div className="note-code" data-slot="note-code">
+      <div className="note-code-bar">
+        <span className="note-code-lang">{language ?? "code"}</span>
         <button
           type="button"
           onClick={copy}
           aria-label={copied ? "Copied" : "Copy code"}
           className={cn(
-            "grid size-6 place-items-center rounded-md text-zinc-400 transition-all",
-            "hover:bg-white/10 hover:text-zinc-100 focus-visible:ring-[3px] focus-visible:ring-ring/50",
-            "opacity-0 outline-none group-hover/code:opacity-100 focus-visible:opacity-100",
-            copied && "text-emerald-400 opacity-100 hover:text-emerald-400",
+            "inline-flex h-6 items-center gap-1.5 rounded-md px-2 text-[0.7rem] font-medium text-zinc-300 transition-colors outline-none",
+            "hover:bg-white/10 hover:text-zinc-50 focus-visible:ring-2 focus-visible:ring-white/20",
+            copied && "text-emerald-300 hover:text-emerald-300",
           )}
         >
           {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+          {copied ? "Copied" : "Copy"}
         </button>
       </div>
+      <pre ref={preRef} className={cn("scroll-slim", className)} {...props}>
+        {children}
+      </pre>
     </div>
   );
 }
