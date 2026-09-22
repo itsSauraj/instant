@@ -7,6 +7,7 @@ import {
   openStream,
   relaySignal,
   removePeer,
+  renameMember,
   setCapacity,
   setPin,
   setVisibility,
@@ -363,6 +364,60 @@ describe("visibility changes", () => {
       error: "forbidden",
     });
     expect(setVisibility(roomId, guest.id, guest.secret, "public")).toEqual({ ok: true });
+  });
+});
+
+describe("renaming", () => {
+  it("changes the name on everyone's roster, the renamer's included", () => {
+    const roomId = freshRoomId();
+    const host = found(roomId);
+    const guest = join(roomId, host, "Guest");
+
+    expect(renameMember(roomId, guest.id, guest.secret, "Ada Lovelace")).toEqual({ ok: true });
+
+    for (const stream of [host.stream, guest.stream]) {
+      const rosters = eventsOf(stream, "roster");
+      const latest = rosters[rosters.length - 1].roster;
+      expect(latest.find((p) => p.id === guest.id)?.name).toBe("Ada Lovelace");
+    }
+  });
+
+  it("sanitises like a join and refuses a name that sanitises to nothing", () => {
+    const roomId = freshRoomId();
+    const host = found(roomId);
+
+    expect(renameMember(roomId, host.id, host.secret, "  Grace   Hopper​ ")).toEqual({
+      ok: true,
+    });
+    let rosters = eventsOf(host.stream, "roster");
+    expect(rosters[rosters.length - 1].roster[0].name).toBe("Grace Hopper");
+
+    const before = rosters.length;
+    expect(renameMember(roomId, host.id, host.secret, "   ")).toEqual({
+      ok: false,
+      error: "invalid",
+    });
+    rosters = eventsOf(host.stream, "roster");
+    expect(rosters).toHaveLength(before);
+    expect(rosters[rosters.length - 1].roster[0].name).toBe("Grace Hopper");
+  });
+
+  it("is a no-op for the same name and is refused without valid credentials", () => {
+    const roomId = freshRoomId();
+    const host = found(roomId, "Host");
+    const before = eventsOf(host.stream, "roster").length;
+
+    expect(renameMember(roomId, host.id, host.secret, "Host")).toEqual({ ok: true });
+    expect(eventsOf(host.stream, "roster")).toHaveLength(before);
+
+    expect(renameMember(roomId, host.id, "wrong", "Mallory")).toEqual({
+      ok: false,
+      error: "unauthorized",
+    });
+    expect(renameMember(roomId, "stranger", host.secret, "Mallory")).toEqual({
+      ok: false,
+      error: "not-member",
+    });
   });
 });
 

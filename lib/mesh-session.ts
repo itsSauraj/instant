@@ -1305,6 +1305,21 @@ export class MeshSession {
     for (const link of this.links.values()) link.sendNoteFrame(frame);
   }
 
+  /**
+   * Changes the display name everyone sees from now on. Applied to `self`
+   * optimistically so the tile answers at once; the roster the server sends
+   * back is what holds. Notes already sent keep the name they carried, by the
+   * same rule that keeps an author's label after they leave.
+   */
+  rename(rawName: string) {
+    const name = sanitizeName(rawName);
+    if (!name || !this.self || this.phase === "ended") return;
+    if (name === this.self.name) return;
+    this.self = { ...this.self, name };
+    void this.signal?.rename(name);
+    this.emit();
+  }
+
   // -------------------------------------------------------------------- doc
 
   private docStorageKey() {

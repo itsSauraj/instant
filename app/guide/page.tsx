@@ -83,7 +83,8 @@ export default function GuidePage() {
                   <>
                     Enter your name on the home page. It is stored only in this browser and never
                     put in the URL - invite links get pasted and scanned, and a name embedded in
-                    one would leak to everyone the link reaches.
+                    one would leak to everyone the link reaches. You can change it later from
+                    Settings inside the room; everyone sees the new name from then on.
                   </>,
                   <>
                     Choose who can join. <strong>Private</strong> means you let each person in by

@@ -174,6 +174,11 @@ export class SignalClient {
     await this.post({ t: "leave" }, { keepalive: true });
   }
 
+  /** Change the display name everyone sees; the roster confirms. */
+  async rename(name: string) {
+    await this.post({ t: "rename", name });
+  }
+
   /** Host only: end the session for everyone. */
   async closeRoom() {
     await this.post({ t: "close" }, { keepalive: true });

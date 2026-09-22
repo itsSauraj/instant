@@ -153,6 +153,12 @@ export type ClientMessage =
   | { t: "signal"; to: PeerId; data: SignalPayload }
   /** Leave voluntarily. Any participant may do this; the room survives. */
   | { t: "leave" }
+  /**
+   * Any participant: change the display name everyone sees from now on. The
+   * server sanitises it exactly as it does the joining name and confirms via
+   * the roster; notes already sent keep the name they were sent under.
+   */
+  | { t: "rename"; name: string }
   /** Host only: end the session for everyone. */
   | { t: "close" }
   /** Host only: answer a knock. */

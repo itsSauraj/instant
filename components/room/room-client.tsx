@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import { AppsLauncher } from "@/components/apps-launcher";
+import { BetaBadge } from "@/components/beta-badge";
 import { Brand } from "@/components/brand";
 import { ConnectionStatus } from "@/components/room/connection-status";
 import { DeviceSettings } from "@/components/room/device-settings";
@@ -28,6 +29,7 @@ import { HostTransferDialog, type TransferIntent } from "@/components/room/host-
 import { InvitePanel } from "@/components/room/invite-panel";
 import { LobbyOverlay } from "@/components/room/lobby-overlay";
 import { MediaPanel } from "@/components/room/media-panel";
+import { NameSettings } from "@/components/room/name-settings";
 import { NotesPanel } from "@/components/room/notes-panel";
 import { AdmitQueue } from "@/components/room/admit-queue";
 import { JoinGate } from "@/components/room/join-gate";
@@ -53,7 +55,7 @@ import { useSessionSounds } from "@/hooks/use-session-sounds";
 import { useTitleAlert } from "@/hooks/use-title-alert";
 import { pushToast } from "@/hooks/use-toasts";
 import { revealIn } from "@/lib/animation";
-import { consumeRoomCreated, hasSeatToken } from "@/lib/identity";
+import { consumeRoomCreated, hasSeatToken, setStoredName } from "@/lib/identity";
 import { prettyRoomId } from "@/lib/ids";
 import type { DeviceKind } from "@/lib/media-devices";
 import type { PeerId, RoomVisibility } from "@/lib/signal-protocol";
@@ -68,11 +70,12 @@ type SideView = "participants" | "invite" | "settings";
 /** The content tabs at the top of the rail. Settings is not a tab: it opens
  *  the right-hand drawer from a button at the bottom of the rail, next to the
  *  quick controls it belongs with. */
-const TABS: { key: TabKey; label: string; icon: typeof StickyNote }[] = [
+const TABS: { key: TabKey; label: string; icon: typeof StickyNote; beta?: boolean }[] = [
   { key: "notes", label: "Notes", icon: StickyNote },
   { key: "doc", label: "Doc", icon: FileText },
   { key: "files", label: "Files", icon: FileUp },
-  { key: "media", label: "Audio & video", icon: Video },
+  // Calls work end to end but are still being tuned; the panel says the same.
+  { key: "media", label: "Audio & video", icon: Video, beta: true },
 ];
 
 /** One `host-changed` event; derived from the transport's own snapshot type
@@ -175,6 +178,17 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
       if (kind !== "audiooutput") await setInputDevice(kind, deviceId);
     },
     [selectDevice, setInputDevice],
+  );
+
+  // A rename is remembered the same way the home page remembers a name, so
+  // the next session starts with it; the room learns it through the server.
+  const { rename } = session;
+  const renameSelf = useCallback(
+    (name: string) => {
+      setStoredName(name);
+      rename(name);
+    },
+    [rename],
   );
 
   // A knock auto-opens the participants panel, because the admit controls live
@@ -546,7 +560,7 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
         {/* Left rail: the tab switcher on top, quick controls at the bottom. */}
         <aside className="flex shrink-0 flex-col items-center justify-between gap-3">
           <TabsList className="h-auto w-auto flex-col">
-            {TABS.map(({ key, label, icon: Icon }) => (
+            {TABS.map(({ key, label, icon: Icon, beta }) => (
               <Tooltip key={key}>
                 <TooltipTrigger asChild>
                   <TabsTrigger
@@ -578,7 +592,10 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
                     ) : null}
                   </TabsTrigger>
                 </TooltipTrigger>
-                <TooltipContent side="right">{label}</TooltipContent>
+                <TooltipContent side="right" className="flex items-center gap-1.5">
+                  {label}
+                  {beta ? <BetaBadge className="py-0" /> : null}
+                </TooltipContent>
               </Tooltip>
             ))}
           </TabsList>
@@ -734,6 +751,9 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
         onClose={closeSide}
       >
         <SidePanelBody className="space-y-4">
+          {/* Everyone's: the name the room shows for you. */}
+          <NameSettings name={session.self?.name ?? ""} onRename={renameSelf} />
+          <Separator />
           {/* Everyone's: which devices this browser sends and listens with.
               The same choice the call controls' arrows offer. */}
           <DeviceSettings devices={devices} onChoose={chooseDevice} />

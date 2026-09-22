@@ -19,6 +19,7 @@ import {
   openStream,
   relaySignal,
   removePeer,
+  renameMember,
   setCapacity,
   setPin,
   setVisibility,
@@ -210,6 +211,10 @@ export async function POST(request: Request, context: RouteContext) {
     }
     case "leave":
       return actionResponse(leaveRoom(roomId, peerId, secret));
+    case "rename": {
+      if (typeof message.name !== "string") return json({ error: "invalid-message" }, 400);
+      return actionResponse(renameMember(roomId, peerId, secret, message.name));
+    }
     case "close":
       return actionResponse(closeRoom(roomId, peerId, secret));
     case "admit": {

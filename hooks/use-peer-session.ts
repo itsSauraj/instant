@@ -171,6 +171,8 @@ export function usePeerSession(
   /** Forget the chosen folder and fall back to the next sink tier. */
   const clearSaveFolder = useCallback(() => session?.clearSaveFolder(), [session]);
 
+  /** Change the name everyone sees from now on; `self.name` follows. */
+  const rename = useCallback((name: string) => session?.rename(name), [session]);
   /** Leave the room yourself; the others keep going. */
   const leaveSession = useCallback(() => session?.leave(), [session]);
   /** Host only: end the session for everyone (no-op for guests). */
@@ -286,6 +288,7 @@ export function usePeerSession(
     // The engine's own provider, so the destination picker steers the sink that
     // actually receives files rather than a second, inert instance.
     sinkProvider: session?.getSinkProvider() ?? null,
+    rename,
     leaveSession,
     closeSession,
     endSession,

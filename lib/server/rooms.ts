@@ -3,6 +3,7 @@ import {
   ROOM_CAPACITY,
   SIGNAL_LIMITS,
   clampCapacity,
+  sanitizeName,
   type EndReason,
   type LeaveReason,
   type ModerationAction,
@@ -702,6 +703,30 @@ export function leaveRoom(roomId: string, peerId: string, secret: string): Actio
 
   safeEmit(auth.self.stream, { t: "ended", reason: "self-left" });
   releaseSeat(auth.room, auth.self, "left");
+  return { ok: true };
+}
+
+/**
+ * Any member: changes the display name everyone sees from now on. Sanitised
+ * exactly like the joining name, so a rename can never smuggle in what a join
+ * could not; an empty result is refused rather than blanking the tile. The
+ * roster is the confirmation, for the renamer included.
+ */
+export function renameMember(
+  roomId: string,
+  peerId: string,
+  secret: string,
+  rawName: string,
+): ActionResult {
+  const auth = authenticate(roomId, peerId, secret);
+  if (!auth.ok) return auth;
+
+  const name = sanitizeName(rawName);
+  if (!name) return { ok: false, error: "invalid" };
+  if (name === auth.self.name) return { ok: true };
+
+  auth.self.name = name;
+  broadcastRoster(auth.room);
   return { ok: true };
 }
 
