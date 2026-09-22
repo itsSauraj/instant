@@ -28,7 +28,7 @@ optional knob (a TURN relay).
 | --- | --- |
 | Notes, rendered as GitHub-flavored markdown with syntax highlighting (raw HTML is never rendered) | `notes` data channel - ordered, reliable, JSON frames |
 | File transfer with progress, cancellation and image previews | `files` data channel - ordered, reliable, 16 KiB binary chunks with a 4-byte transfer-id header |
-| Microphone, camera and screen share | RTP media tracks on the same peer connection (screen share takes over the outgoing video sender while it is on) |
+| Microphone, camera and screen share (**beta**: works end to end, quality and device support still being tuned) | RTP media tracks on the same peer connection (screen share takes over the outgoing video sender while it is on) |
 
 Both data channels and all media tracks ride one `RTCPeerConnection`, so
 turning on a device mid-session only triggers renegotiation, never a new

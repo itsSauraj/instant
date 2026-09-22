@@ -282,6 +282,11 @@ export default function GuidePage() {
               <div className="gap-3 sm:grid sm:grid-cols-[minmax(0,1fr)_11.25rem] sm:items-start">
                 <div className="space-y-3">
                   <p>
+                    Calls are in <strong>beta</strong>: they work end to end, but quality and
+                    device support are still being tuned, so expect the occasional rough edge.
+                    Notes, the shared doc and files are not affected.
+                  </p>
+                  <p>
                     Calls run as a full mesh: everyone connects directly to everyone, with no
                     media server mixing or relaying in the middle. The layout is one large stage
                     plus a filmstrip of everyone else. Pin someone to the stage for yourself, or

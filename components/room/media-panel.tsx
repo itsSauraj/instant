@@ -15,6 +15,7 @@ import {
   VolumeX,
 } from "lucide-react";
 
+import { BetaBadge } from "@/components/beta-badge";
 import { DeviceMenu } from "@/components/room/device-menu";
 import { VideoGrid } from "@/components/room/video-grid";
 import { ScreenAudioPeersProvider } from "@/components/room/video-tile";
@@ -290,6 +291,28 @@ export function MediaPanel({
 
   return (
     <div className="panel relative flex h-full flex-col overflow-hidden">
+      {/* Calls are the one part of the room still marked beta. The pill sits
+          over the stage's top-left corner, away from the tile controls (top
+          right) and the name bar (bottom), and explains itself on hover. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {/* A wrapper, not the pill itself: Radix stamps its own data-slot on
+              the trigger, and the pill's must stay findable. */}
+          <span
+            tabIndex={0}
+            aria-label="Calls are in beta"
+            className="absolute top-3 left-3 z-10 inline-flex cursor-help"
+          >
+            <BetaBadge className="backdrop-blur-sm" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-w-64">
+          Calls are in beta: they work end to end, but quality and device support are still
+          being tuned, so expect the occasional rough edge. Notes, the shared doc and files are
+          not affected.
+        </TooltipContent>
+      </Tooltip>
+
       {/* min-h-0 flex-1 layout: each tile positions its <video> absolutely,
           so no video's intrinsic size (a portrait phone camera is very tall)
           can inflate this flex item and push the controls out of the panel. */}

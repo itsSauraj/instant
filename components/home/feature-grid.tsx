@@ -15,8 +15,10 @@ import {
   RefreshCw,
   ShieldCheck,
   UserCheck,
+  type LucideIcon,
 } from "lucide-react";
 
+import { BetaBadge } from "@/components/beta-badge";
 import { revealIn } from "@/lib/animation";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +28,15 @@ import { cn } from "@/lib/utils";
  * anyone to the docs - though the guide link at the end is there for whoever
  * wants the long version.
  */
-const FEATURES = [
+type Feature = {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  /** Works end to end but is still being tuned; shown with a Beta pill. */
+  beta?: boolean;
+};
+
+const FEATURES: Feature[] = [
   {
     icon: UserCheck,
     title: "Private by default, public on demand",
@@ -40,7 +50,8 @@ const FEATURES = [
   {
     icon: MonitorUp,
     title: "Up to 7 in a mesh call",
-    description: "Camera, microphone and screen share, with every browser connected directly to every other.",
+    description: "Camera, microphone and screen share, with every browser connected directly to every other. Still being tuned.",
+    beta: true,
   },
   {
     icon: RefreshCw,
@@ -67,7 +78,7 @@ const FEATURES = [
     title: "Host controls",
     description: "Mute and camera moderation, pinning, and handing the room to a new host mid-session.",
   },
-] as const;
+];
 
 export function FeatureGrid({ className }: { className?: string }) {
   const scope = useRef<HTMLElement>(null);
@@ -120,9 +131,12 @@ export function FeatureGrid({ className }: { className?: string }) {
           </p>
         </div>
 
-        {FEATURES.map(({ icon: Icon, title, description }) => (
+        {FEATURES.map(({ icon: Icon, title, description, beta }) => (
           <div key={title} data-anim="in" className="panel p-5">
-            <Icon className="text-primary size-5" />
+            <div className="flex items-center justify-between gap-3">
+              <Icon className="text-primary size-5" />
+              {beta ? <BetaBadge /> : null}
+            </div>
             <h3 className="mt-3 text-sm font-semibold">{title}</h3>
             <p className="text-muted-foreground mt-1 text-sm">{description}</p>
           </div>
