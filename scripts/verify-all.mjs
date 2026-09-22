@@ -35,6 +35,7 @@ const SUITES = [
   "verify-host-handover.mjs", //     clean close without a false error; host transfer
   "verify-end-session.mjs", //       close-for-everyone vs leave-with-successor
   "verify-visibility.mjs", //        public vs private rooms, short and custom codes
+  "verify-devices.mjs", //           microphone/camera/speaker choice from the arrows and Settings
 ];
 
 const COUNT_LINE = /^\s{2}(PASS|FAIL|SKIP)\s{2}/;

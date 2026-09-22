@@ -196,6 +196,14 @@ export function usePeerSession(
    *  fresh screen share can grant display audio again, so do not present this as
    *  a toggle. */
   const stopScreenAudio = useCallback(() => session?.stopScreenAudio(), [session]);
+  /** Capture from another microphone or camera (null = system default). A live
+   *  capture switches over in place; rejects if the device cannot be opened,
+   *  in which case nothing changed. */
+  const setInputDevice = useCallback(
+    (kind: "audioinput" | "videoinput", deviceId: string | null) =>
+      session?.setInputDevice(kind, deviceId) ?? Promise.resolve(),
+    [session],
+  );
 
   // Host controls (the server rejects them from anyone else).
   const admit = useCallback(
@@ -285,6 +293,7 @@ export function usePeerSession(
     toggleCamera,
     toggleScreenShare,
     stopScreenAudio,
+    setInputDevice,
     admit,
     setCapacity,
     setVisibility,

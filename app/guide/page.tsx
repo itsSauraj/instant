@@ -297,6 +297,16 @@ export default function GuidePage() {
                     camera.
                   </p>
                   <p>
+                    The small arrow beside the microphone and camera buttons picks which device to
+                    use - the microphone&apos;s arrow also offers the speaker - and the same three
+                    choices sit under Devices in Settings. Switching while your microphone or
+                    camera is live swaps the device in place; nobody else renegotiates or notices.
+                    The choice is remembered in this browser, and a device that is unplugged next
+                    time simply falls back to the system default. Speaker choice depends on the
+                    browser: Chrome and Edge allow it, Firefox and Safari always use the system
+                    speaker, and the pickers say so.
+                  </p>
+                  <p>
                     The robot avatars are generated locally from a stable per-browser seed - never
                     fetched from an avatar service - so every peer draws the same robot for the
                     same person, and no third party learns who is in your room.

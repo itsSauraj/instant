@@ -8,6 +8,7 @@ import {
   type Transfer,
 } from "@/lib/file-transfer";
 import { getStoredName } from "@/lib/identity";
+import { inputConstraint, isMissingDeviceError, loadDeviceChoice } from "@/lib/media-devices";
 import { MAX_DOC_LENGTH, MAX_NOTE_LENGTH, type NoteFrame } from "@/lib/peer-protocol";
 import { PeerLink, type PeerLinkState } from "@/lib/peer-link";
 import { SignalClient } from "@/lib/signal-client";
@@ -193,6 +194,19 @@ export type MeshSnapshot = {
 /** Timestamps beyond what `Date` can represent would crash `toISOString()`. */
 const MAX_NOTE_TIMESTAMP_MS = 8.64e15;
 
+/**
+ * Whether a live track already comes from the chosen device. Unknowable for
+ * the system default (null), which is therefore always worth re-opening.
+ */
+function sameDevice(track: MediaStreamTrack, deviceId: string | null) {
+  if (!deviceId) return false;
+  try {
+    return track.getSettings().deviceId === deviceId;
+  } catch {
+    return false;
+  }
+}
+
 /** A peer that stops typing without telling us is common; self-expire. */
 const TYPING_EXPIRE_MS = 4000;
 
@@ -287,6 +301,13 @@ export class MeshSession {
   private screenAudioTrack: MediaStreamTrack | null = null;
   private screenAudioSupport: ScreenAudioSupport = "unknown";
   private mediaVersion = 0;
+  /**
+   * Which microphone and camera to capture from, remembered per browser
+   * (lib/media-devices.ts). Applied as an `ideal` constraint on every capture,
+   * so an unplugged favourite falls back to the system default instead of
+   * failing. The speaker is the tiles' business, not the transport's.
+   */
+  private readonly inputChoice: { audioinput: string | null; videoinput: string | null };
 
   private phase: MeshPhase = "joining";
   private endReason: EndReason | null = null;
@@ -334,6 +355,8 @@ export class MeshSession {
     options: { visibility?: RoomVisibility } = {},
   ) {
     this.visibility = options.visibility ?? "private";
+    const devices = loadDeviceChoice();
+    this.inputChoice = { audioinput: devices.audioinput, videoinput: devices.videoinput };
     this.doc = this.loadDoc();
     this.infraReady = this.initTransferInfra();
     this.snapshot = this.build();
@@ -1497,13 +1520,105 @@ export class MeshSession {
       this.bumpMedia();
       return;
     }
-    const stream = await this.request({ audio: true });
+    const stream = await this.requestMic();
     const track = stream.getAudioTracks()[0];
     if (!track) return;
     this.micTrack = track;
     this.localStream.addTrack(track);
     this.syncMic();
     this.bumpMedia();
+  }
+
+  /**
+   * Switches the microphone or camera to another device. Remembered either
+   * way; when that capture is live right now, the new device is opened FIRST
+   * and only then does the old track stop and the new one take its slot in
+   * every link, so a device that cannot be opened leaves the call exactly as
+   * it was (the error goes to the caller). The slot swap is a `replaceTrack`,
+   * so nobody renegotiates.
+   */
+  async setInputDevice(kind: "audioinput" | "videoinput", deviceId: string | null) {
+    this.inputChoice[kind] = deviceId;
+    if (this.phase === "ended") return;
+
+    if (kind === "audioinput") {
+      const current = this.micTrack;
+      if (!current || sameDevice(current, deviceId)) return;
+      const stream = await this.requestMic();
+      const next = stream.getAudioTracks()[0];
+      if (!next) return;
+      // The mic may have been turned off while the prompt was up.
+      if (this.micTrack !== current) {
+        next.stop();
+        return;
+      }
+      current.onended = null;
+      current.stop();
+      this.localStream.removeTrack(current);
+      this.micTrack = next;
+      this.localStream.addTrack(next);
+      this.syncMic();
+      this.bumpMedia();
+      return;
+    }
+
+    const current = this.cameraTrack;
+    if (!current || sameDevice(current, deviceId)) return;
+    const stream = await this.requestCamera();
+    const next = stream.getVideoTracks()[0];
+    if (!next) return;
+    if (this.cameraTrack !== current) {
+      next.stop();
+      return;
+    }
+    current.onended = null;
+    current.stop();
+    this.localStream.removeTrack(current);
+    this.cameraTrack = next;
+    this.localStream.addTrack(next);
+    // Screen share owns the outgoing video slot while it is on; then the
+    // camera is preview-only and the senders carry on untouched.
+    if (!this.screenTrack) {
+      for (const link of this.links.values()) link.setVideoTrack(next, "camera");
+      this.applyAllBudgets();
+    }
+    this.bumpMedia();
+  }
+
+  /**
+   * Opens the chosen microphone, or the default when none is chosen. The
+   * chosen device is asked for exactly - browsers treat `ideal` as a hint and
+   * hand back the default - and if it turns out to be gone (unplugged since
+   * last time) the capture retries on the default rather than failing. Any
+   * other failure (permission refused, device busy) is the caller's to show.
+   */
+  private requestMic() {
+    const choice = this.inputChoice.audioinput;
+    return this.requestWithFallback(
+      { audio: choice ? inputConstraint(choice) : true },
+      choice ? { audio: true } : null,
+    );
+  }
+
+  private requestCamera() {
+    const choice = this.inputChoice.videoinput;
+    const shape = { width: 1280, height: 720 };
+    return this.requestWithFallback(
+      { video: { ...shape, ...inputConstraint(choice) } },
+      choice ? { video: shape } : null,
+    );
+  }
+
+  private async requestWithFallback(
+    constraints: MediaStreamConstraints,
+    fallback: MediaStreamConstraints | null,
+  ) {
+    try {
+      return await this.request(constraints);
+    } catch (error) {
+      if (!fallback || !isMissingDeviceError(error)) throw error;
+      return this.request(fallback);
+    }
   }
 
   async toggleCamera() {
@@ -1522,7 +1637,7 @@ export class MeshSession {
       return;
     }
 
-    const stream = await this.request({ video: { width: 1280, height: 720 } });
+    const stream = await this.requestCamera();
     const track = stream.getVideoTracks()[0];
     if (!track) return;
     this.cameraTrack = track;

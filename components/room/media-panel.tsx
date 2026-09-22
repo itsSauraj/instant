@@ -15,6 +15,7 @@ import {
   VolumeX,
 } from "lucide-react";
 
+import { DeviceMenu } from "@/components/room/device-menu";
 import { VideoGrid } from "@/components/room/video-grid";
 import { ScreenAudioPeersProvider } from "@/components/room/video-tile";
 import {
@@ -30,6 +31,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { MediaDevices } from "@/hooks/use-media-devices";
+import type { DeviceKind } from "@/lib/media-devices";
 import type { MeshMediaState, MeshParticipant } from "@/lib/mesh-session";
 import {
   isEnforced,
@@ -84,6 +87,8 @@ export function MediaPanel({
   onToggleMic,
   onToggleCamera,
   onToggleScreen,
+  devices,
+  onChooseDevice,
 }: {
   media: MeshMediaState;
   /** The local participant; null while joining. */
@@ -107,6 +112,12 @@ export function MediaPanel({
   onToggleMic: () => Promise<void>;
   onToggleCamera: () => Promise<void>;
   onToggleScreen: () => Promise<void>;
+  /** The device lists and remembered choice; with `onChooseDevice`, each call
+   *  control grows a Meet-style arrow that opens them. Omit both to hide. */
+  devices?: MediaDevices;
+  /** Applies a choice; rejects when a live capture cannot switch over, and
+   *  the rejection is reported beside the controls like any device error. */
+  onChooseDevice?: (kind: DeviceKind, deviceId: string | null) => Promise<void>;
 }) {
   const [deviceError, setDeviceError] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
@@ -301,6 +312,7 @@ export function MediaPanel({
           onModerate={moderate ? (peerId, action) => moderate(peerId, action) : undefined}
           forcedAudioBy={forcedAudioBy}
           forcedVideoBy={forcedVideoBy}
+          sinkId={devices ? (devices.choice.audiooutput ?? null) : undefined}
         />
       </ScreenAudioPeersProvider>
 
@@ -445,20 +457,50 @@ export function MediaPanel({
           data-slot="call-controls"
           className="bg-background/70 pointer-events-auto flex items-center gap-1.5 rounded-full border p-1.5 shadow-lg backdrop-blur-md"
         >
-          <Control
-            active={media.micOn}
-            disabled={disabled || busy !== null}
-            onClick={run("mic", onToggleMic)}
-            on={{ icon: Mic, label: "Turn off microphone" }}
-            off={{ icon: MicOff, label: "Turn on microphone" }}
-          />
-          <Control
-            active={media.cameraOn}
-            disabled={disabled || busy !== null}
-            onClick={run("camera", onToggleCamera)}
-            on={{ icon: Video, label: "Turn off camera" }}
-            off={{ icon: VideoOff, label: "Turn on camera" }}
-          />
+          {/* Each device control is a pair, as in Meet: the big button toggles,
+              the small arrow beside it picks WHICH device. Choosing runs
+              through `run` so a device that will not open reports its error
+              in the same place a failed toggle does. */}
+          <div className="flex items-center gap-0.5" data-slot="mic-control">
+            <Control
+              active={media.micOn}
+              disabled={disabled || busy !== null}
+              onClick={run("mic", onToggleMic)}
+              on={{ icon: Mic, label: "Turn off microphone" }}
+              off={{ icon: MicOff, label: "Turn on microphone" }}
+            />
+            {devices && onChooseDevice ? (
+              <DeviceMenu
+                devices={devices}
+                kinds={["audioinput", "audiooutput"]}
+                label="Microphone and speaker options"
+                disabled={disabled || busy !== null}
+                onChoose={(kind, deviceId) =>
+                  void run(`device-${kind}`, () => onChooseDevice(kind, deviceId))()
+                }
+              />
+            ) : null}
+          </div>
+          <div className="flex items-center gap-0.5" data-slot="camera-control">
+            <Control
+              active={media.cameraOn}
+              disabled={disabled || busy !== null}
+              onClick={run("camera", onToggleCamera)}
+              on={{ icon: Video, label: "Turn off camera" }}
+              off={{ icon: VideoOff, label: "Turn on camera" }}
+            />
+            {devices && onChooseDevice ? (
+              <DeviceMenu
+                devices={devices}
+                kinds={["videoinput"]}
+                label="Camera options"
+                disabled={disabled || busy !== null}
+                onChoose={(kind, deviceId) =>
+                  void run(`device-${kind}`, () => onChooseDevice(kind, deviceId))()
+                }
+              />
+            ) : null}
+          </div>
           {canShareScreen ? (
             <Control
               active={media.screenOn}

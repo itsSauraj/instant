@@ -97,6 +97,7 @@ export function VideoTile({
   onModerate,
   forcedAudioBy,
   forcedVideoBy,
+  sinkId,
   labelClearance = false,
   className,
 }: {
@@ -141,6 +142,9 @@ export function VideoTile({
   forcedAudioBy?: string | null;
   /** Self tile only: the host who force-stopped the camera. */
   forcedVideoBy?: string | null;
+  /** Remote tiles: the speaker to play through; null is the system default,
+   *  undefined leaves the element alone. */
+  sinkId?: string | null;
   /** Stage tile only: raise the name bar (from `sm` up) so the floating
    *  control pill at the panel's bottom never covers the person's name. */
   labelClearance?: boolean;
@@ -220,6 +224,8 @@ export function VideoTile({
         mirrored={mirror && !screenSharing}
         label={isSelf ? undefined : `Live video from ${name}`}
         onBlockedChange={isSelf ? undefined : handleBlockedChange}
+        // The self preview is muted, so the speaker choice is moot there.
+        sinkId={isSelf ? undefined : sinkId}
         className={cn(
           "absolute inset-0 size-full object-contain",
           !videoLive && "invisible",
@@ -443,6 +449,7 @@ function Surface({
   className,
   label,
   onBlockedChange,
+  sinkId,
 }: {
   stream: MediaStream | null;
   version: number;
@@ -453,8 +460,22 @@ function Surface({
   label?: string;
   /** Reports whether the browser is refusing to play this element. */
   onBlockedChange?: (blocked: boolean) => void;
+  /** Output device; null is the system default, undefined means do not touch. */
+  sinkId?: string | null;
 }) {
   const ref = useRef<HTMLVideoElement>(null);
+
+  // Speaker choice, where the browser allows a page to make one (Chromium).
+  // Re-applied when the stream binds, because a freshly bound element plays
+  // through the default until told otherwise. A device that has since been
+  // unplugged rejects; the element then simply keeps the default.
+  useEffect(() => {
+    const element = ref.current as
+      | (HTMLVideoElement & { setSinkId?: (id: string) => Promise<void> })
+      | null;
+    if (!element || sinkId === undefined || typeof element.setSinkId !== "function") return;
+    element.setSinkId(sinkId ?? "").catch(() => {});
+  }, [sinkId, stream]);
 
   // Binding is separate from playback so that toggling `muted` retries play
   // without tearing the stream off the element and re-attaching it.

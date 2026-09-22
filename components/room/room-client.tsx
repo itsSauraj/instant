@@ -18,6 +18,7 @@ import {
 import { AppsLauncher } from "@/components/apps-launcher";
 import { Brand } from "@/components/brand";
 import { ConnectionStatus } from "@/components/room/connection-status";
+import { DeviceSettings } from "@/components/room/device-settings";
 import { DocPanel } from "@/components/room/doc-panel";
 import { EndedOverlay } from "@/components/room/ended-overlay";
 import { EndSessionDialog } from "@/components/room/end-session-dialog";
@@ -40,9 +41,11 @@ import { VISIBILITY_COPY, VisibilityBadge } from "@/components/room/visibility-t
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToastViewport } from "@/components/ui/toast";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useMediaDevices } from "@/hooks/use-media-devices";
 import { usePeerSession, type PeerSessionApi } from "@/hooks/use-peer-session";
 import { usePeerVerification } from "@/hooks/use-peer-verification";
 import { useSessionNotifications } from "@/hooks/use-session-notifications";
@@ -52,6 +55,7 @@ import { pushToast } from "@/hooks/use-toasts";
 import { revealIn } from "@/lib/animation";
 import { consumeRoomCreated, hasSeatToken } from "@/lib/identity";
 import { prettyRoomId } from "@/lib/ids";
+import type { DeviceKind } from "@/lib/media-devices";
 import type { PeerId, RoomVisibility } from "@/lib/signal-protocol";
 import { cn } from "@/lib/utils";
 
@@ -155,6 +159,23 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
 
   // Optional emoji verification of each direct link's DTLS keys.
   const verification = usePeerVerification(session.participants, session.getPairFingerprint);
+
+  // Which microphone, camera and speaker to use: one remembered choice behind
+  // both the call controls' arrow menus and the Settings pane. Re-read on
+  // every media change so real device names show up the moment a capture is
+  // first allowed.
+  const devices = useMediaDevices(session.media.version);
+  const { select: selectDevice } = devices;
+  const { setInputDevice } = session;
+  const chooseDevice = useCallback(
+    async (kind: DeviceKind, deviceId: string | null) => {
+      selectDevice(kind, deviceId);
+      // The speaker is applied by the tiles from the choice itself; the two
+      // inputs need the transport to reopen a live capture on the new device.
+      if (kind !== "audiooutput") await setInputDevice(kind, deviceId);
+    },
+    [selectDevice, setInputDevice],
+  );
 
   // A knock auto-opens the participants panel, because the admit controls live
   // there and nothing else can answer one.
@@ -669,6 +690,8 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
             onToggleMic={session.toggleMic}
             onToggleCamera={session.toggleCamera}
             onToggleScreen={session.toggleScreenShare}
+            devices={devices}
+            onChooseDevice={chooseDevice}
           />
         </TabsContent>
 
@@ -710,7 +733,11 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
         title="Settings"
         onClose={closeSide}
       >
-        <SidePanelBody>
+        <SidePanelBody className="space-y-4">
+          {/* Everyone's: which devices this browser sends and listens with.
+              The same choice the call controls' arrows offer. */}
+          <DeviceSettings devices={devices} onChoose={chooseDevice} />
+          <Separator />
           {session.isHost ? (
             /* `roster` rather than `session.participants`: the snapshot keeps
                self out of that list, and the capacity readout must count

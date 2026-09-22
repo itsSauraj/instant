@@ -51,6 +51,7 @@ export function VideoGrid({
   onModerate,
   forcedAudioBy,
   forcedVideoBy,
+  sinkId,
   className,
 }: {
   /** The local participant; null while still joining. */
@@ -76,6 +77,8 @@ export function VideoGrid({
   /** Passed through to the self tile: who force-muted us, if anyone. */
   forcedAudioBy?: string | null;
   forcedVideoBy?: string | null;
+  /** The chosen speaker for every remote tile; null is the system default. */
+  sinkId?: string | null;
   className?: string;
 }) {
   // One list, self included, in the shared joinedAt/id total order.
@@ -129,6 +132,7 @@ export function VideoGrid({
         onModerate={onModerate ? (action) => onModerate(id, action) : undefined}
         forcedAudioBy={isSelf ? forcedAudioBy : undefined}
         forcedVideoBy={isSelf ? forcedVideoBy : undefined}
+        sinkId={sinkId}
         labelClearance={isStage}
         className={tileClassName}
       />
