@@ -36,7 +36,14 @@ export const NoteMarkdown = memo(function NoteMarkdown({ text }: { text: string 
   );
 });
 
-function CodeBlock({ children, className, ...props }: React.ComponentProps<"pre">) {
+function CodeBlock({
+  children,
+  className,
+  // react-markdown hands its syntax-tree node along with the props; spreading
+  // it onto the element rendered `node="[object Object]"` into the DOM.
+  node: _node,
+  ...props
+}: React.ComponentProps<"pre"> & { node?: unknown }) {
   const preRef = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<ReturnType<typeof setTimeout>>(undefined);

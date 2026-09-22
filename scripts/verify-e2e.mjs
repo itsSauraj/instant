@@ -207,6 +207,25 @@ async function run() {
   });
   check("the bold note arrives rendered bold at the other side", true);
 
+  // A fence opens a code block on the spot, the block carries a language
+  // picker, and the note arrives as a highlighted block in that language.
+  await b.page.getByLabel("Note", { exact: true }).pressSequentially("```");
+  const liveCode = b.page.getByLabel("Note", { exact: true }).locator("pre code");
+  await liveCode.first().waitFor({ timeout: 5000 }).catch(() => {});
+  check("typing ``` opens a code block in the composer", (await liveCode.count()) === 1);
+  await b.page.getByLabel("Note", { exact: true }).pressSequentially("print('hi')");
+  const picker = b.page.getByLabel("Code language");
+  check("the code block offers a language picker", await picker.isVisible().catch(() => false));
+  await picker.selectOption("python").catch(() => {});
+  await b.page.getByLabel("Note", { exact: true }).press("Control+Enter");
+  const receivedCode = a.page.locator('[data-slot="note"] pre code', { hasText: "print" }).first();
+  await receivedCode.waitFor({ timeout: 10_000 });
+  check(
+    "the code block arrives as a block tagged with its language",
+    /language-python/.test((await receivedCode.getAttribute("class")) ?? ""),
+    await receivedCode.getAttribute("class"),
+  );
+
   await a.page.getByLabel("Note", { exact: true }).fill("about to send");
   await b.page.getByText(/typing/i).first().waitFor({ timeout: 8_000 });
   check("typing indicator reaches the peer", true);

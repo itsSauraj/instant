@@ -1,11 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { Markdown } from "@tiptap/markdown";
 import { CharacterCount } from "@tiptap/extensions";
-import type { EditorState } from "@tiptap/pm/state";
-import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
+import type { Node as PMNode } from "@tiptap/pm/model";
+import { TextSelection, type EditorState } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
+import {
+  EditorContent,
+  ReactNodeViewRenderer,
+  useEditor,
+  useEditorState,
+  type Editor,
+} from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { all, createLowlight } from "lowlight";
 import {
   Bold,
   Code,
@@ -20,6 +30,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { CodeBlockView } from "@/components/room/code-block-view";
 import { shortcutAction, type FormatAction } from "@/components/room/composer-format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,6 +53,12 @@ import { cn } from "@/lib/utils";
  * Enter sends, Shift+Enter breaks a line. Inside a list, quote or code block
  * Enter keeps editing (new item, new line) because that is what Enter means
  * there; Ctrl/Cmd+Enter sends from anywhere.
+ *
+ * Code blocks: typing ``` at the start of a line opens one on the spot, the
+ * toolbar turns just the selected text into one (prose before and after it
+ * stays prose), each block highlights as you type and carries a language
+ * picker in its corner, and Shift+Enter, ArrowDown or a third Enter at its end
+ * steps back out to keep writing below it.
  */
 
 const MOD =
@@ -78,6 +95,17 @@ const ACTIVE_NAME: Record<FormatAction, string> = {
   quote: "blockquote",
 };
 
+/**
+ * Code blocks highlight as they are typed, with the same grammars the bubbles
+ * use, and render through CodeBlockView so each carries a language picker.
+ */
+const lowlight = createLowlight(all);
+const ComposerCodeBlock = CodeBlockLowlight.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(CodeBlockView);
+  },
+}).configure({ lowlight, defaultLanguage: null });
+
 /** Inside these, Enter edits rather than sends; see the component note. */
 const EDITING_CONTEXTS = new Set(["codeBlock", "listItem", "blockquote"]);
 
@@ -87,6 +115,96 @@ function inEditingContext(state: EditorState) {
     if (EDITING_CONTEXTS.has($from.node(depth).type.name)) return true;
   }
   return false;
+}
+
+/**
+ * Typing the third backtick at the start of a line turns that line into a code
+ * block on the spot, as Slack does. "Line" means since the block start or the
+ * last Shift+Enter break, so a fence typed under some text puts the block right
+ * after that text, inside the same message. The language is chosen from the
+ * block's corner rather than typed after the fence.
+ */
+function startCodeBlockOnFence(view: EditorView, from: number): boolean {
+  const { state } = view;
+  const codeBlock = state.schema.nodes.codeBlock;
+  if (!codeBlock) return false;
+  const $from = state.doc.resolve(from);
+  const parent = $from.parent;
+  if ($from.depth !== 1 || !parent.isTextblock || parent.type.name === "codeBlock") return false;
+  // Only at the end of the block: backticks mid-sentence are just text.
+  const offset = $from.parentOffset;
+  if (offset !== parent.content.size) return false;
+  const typed = parent.textBetween(0, offset, undefined, "\n");
+  const lastBreak = typed.lastIndexOf("\n");
+  if (typed.slice(lastBreak + 1) !== "``") return false;
+
+  const blockStart = $from.before(1);
+  const blockEnd = $from.after(1);
+  const tr = state.tr;
+  if (lastBreak === -1) {
+    // The fence is the whole block, so the block becomes the code block.
+    tr.replaceWith(blockStart, blockEnd, codeBlock.create());
+    tr.setSelection(TextSelection.create(tr.doc, blockStart + 1));
+  } else {
+    // "text<br>``": drop the break and the two backticks, then open the block
+    // right after the paragraph the text is in.
+    tr.delete(from - 3, from);
+    const at = tr.mapping.map(blockEnd);
+    tr.insert(at, codeBlock.create());
+    tr.setSelection(TextSelection.create(tr.doc, at + 1));
+  }
+  view.dispatch(tr.scrollIntoView());
+  return true;
+}
+
+/**
+ * The toolbar's code block action. With text selected inside a paragraph, ONLY
+ * that text becomes the block: whatever came before it and after it stays as
+ * ordinary paragraphs around the block, so one message can carry prose and
+ * code together. Everything else (no selection, already inside a block, a
+ * selection inside a list or quote) is the plain block toggle.
+ */
+function codeBlockFromSelection(editor: Editor) {
+  const { state } = editor;
+  const codeBlock = state.schema.nodes.codeBlock;
+  const { from, to, empty } = state.selection;
+  const $from = state.doc.resolve(from);
+  const $to = state.doc.resolve(to);
+  const plainToggle =
+    empty ||
+    !codeBlock ||
+    editor.isActive("codeBlock") ||
+    $from.depth !== 1 ||
+    $to.depth !== 1 ||
+    !$from.parent.isTextblock ||
+    !$to.parent.isTextblock;
+  if (plainToggle) {
+    editor.chain().focus().toggleCodeBlock().run();
+    return;
+  }
+
+  const text = state.doc.textBetween(from, to, "\n", "\n");
+  const before = trimBreak($from.parent.cut(0, $from.parentOffset), "end");
+  const after = trimBreak($to.parent.cut($to.parentOffset), "start");
+  const nodes: PMNode[] = [];
+  if (before.content.size > 0) nodes.push(before);
+  nodes.push(codeBlock.create(null, text ? state.schema.text(text) : null));
+  if (after.content.size > 0) nodes.push(after);
+
+  const start = $from.before(1);
+  const end = $to.after(1);
+  const tr = state.tr.replaceWith(start, end, nodes);
+  const blockPos = start + (before.content.size > 0 ? before.nodeSize : 0);
+  tr.setSelection(TextSelection.create(tr.doc, blockPos + 1 + text.length));
+  editor.view.dispatch(tr.scrollIntoView());
+  editor.commands.focus();
+}
+
+/** A paragraph cut at a Shift+Enter break would keep the break; drop it. */
+function trimBreak(node: PMNode, side: "start" | "end"): PMNode {
+  const edge = side === "end" ? node.lastChild : node.firstChild;
+  if (!edge || edge.type.name !== "hardBreak") return node;
+  return side === "end" ? node.cut(0, node.content.size - edge.nodeSize) : node.cut(edge.nodeSize);
 }
 
 /** Bare domains become https links; anything with a scheme is left alone. */
@@ -135,9 +253,13 @@ export function NoteComposer({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
-        // Markdown has no underline, and a chat box needs no trailing paragraph.
+        // Markdown has no underline.
         underline: false,
-        trailingNode: false,
+        // Replaced by ComposerCodeBlock (highlighting and the language picker).
+        codeBlock: false,
+        // The trailing-node extension stays ON (the starter kit's default): it
+        // keeps an empty paragraph after a code block that ends the message, so
+        // there is always somewhere to click or arrow down to and keep writing.
         link: {
           openOnClick: false,
           autolink: true,
@@ -145,6 +267,7 @@ export function NoteComposer({
           defaultProtocol: "https",
         },
       }),
+      ComposerCodeBlock,
       Markdown,
       // Counts characters of the visible text; the serialised markdown is a
       // little longer, and the transport clips it to the same cap anyway.
@@ -159,6 +282,9 @@ export function NoteComposer({
         // so what you see while typing is what the others will see.
         class: "note-md min-h-6 outline-none",
       },
+      // Runs before the input rules, so the third backtick never reaches them.
+      handleTextInput: (view, from, _to, text) =>
+        text === "`" && startCodeBlockOnFence(view, from),
       handleKeyDown: (view, event) => {
         if (event.key === "Enter" && !event.shiftKey && !event.altKey) {
           if (event.ctrlKey || event.metaKey || !inEditingContext(view.state)) {
@@ -241,7 +367,7 @@ export function NoteComposer({
         chain.toggleCode().run();
         break;
       case "codeblock":
-        chain.toggleCodeBlock().run();
+        codeBlockFromSelection(current);
         break;
       case "bullet":
         chain.toggleBulletList().run();

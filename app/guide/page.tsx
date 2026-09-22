@@ -209,9 +209,12 @@ export default function GuidePage() {
                 Notes are markdown messages written in a field that shows the formatting as you
                 type: <code className="text-foreground font-mono text-xs">**bold**</code> turns
                 bold on the spot, <code className="text-foreground font-mono text-xs">- </code>{" "}
-                starts a list, three backticks open a code block, and the toolbar and Slack-style
-                shortcuts toggle the same things. Enter sends; Shift+Enter breaks a line; inside a
-                list or code block Enter keeps editing and Ctrl+Enter sends. What travels to the
+                starts a list, three backticks open a code block that highlights as you type and
+                carries a language picker in its corner, and the toolbar and Slack-style shortcuts
+                toggle the same things - the code block button turns just the selected text into
+                a block, leaving the prose around it alone. Enter sends; Shift+Enter breaks a line
+                (or steps out of a code block); inside a list or code block Enter keeps editing and
+                Ctrl+Enter sends. What travels to the
                 others is plain markdown, rendered into author-labelled bubbles with typing
                 indicators. Notes exist only in the participants&apos; browsers, for the length of
                 the session - there is no history on any server because no server ever sees them.

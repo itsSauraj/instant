@@ -10,21 +10,12 @@ import type { AppEntry } from "@/lib/apps-registry";
  */
 export const APPS_FALLBACK: AppEntry[] = [
   {
-    id: "instant",
-    name: "Instant",
-    description: "Notes, files and video, browser to browser.",
-    url: "https://saurabh-yadav.me",
-    icon: "video",
+    id: "S3 Manager",
+    name: "S3 Manager",
+    description: "Fast and secure S3 file manager.",
+    url: "https://s3.saurabh-yadav.me",
+    icon: "files",
     accent: "primary",
     order: 0,
-  },
-  {
-    id: "source",
-    name: "Source",
-    description: "The code behind these apps.",
-    url: "https://github.com/itsSauraj",
-    icon: "code",
-    accent: "neutral",
-    order: 1,
-  },
+  }
 ];
