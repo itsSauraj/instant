@@ -85,6 +85,8 @@ function NoteBubble({ note }: { note: Note }) {
         // sees the author label beside it.
         data-slot="note"
         data-author={note.authorName || undefined}
+        // Lets the stylesheet retint link chips against the primary bubble.
+        data-mine={note.mine || undefined}
         className={cn(
           "max-w-[min(34rem,85%)] rounded-2xl px-3.5 py-2 text-sm shadow-xs",
           note.mine

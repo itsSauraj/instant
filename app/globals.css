@@ -243,9 +243,67 @@
     margin: 0.15rem 0;
   }
 
+  /* A link mark while it is being typed in the composer. */
   .note-md a {
+    color: var(--primary);
     text-decoration: underline;
     text-underline-offset: 2px;
+  }
+
+  /* A rendered link (notes and the shared doc's preview): an accent chip that
+     names the site, like a mention, rather than the raw address. */
+  .note-md a.note-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    max-width: 100%;
+    vertical-align: baseline;
+    margin: 0 0.05rem;
+    padding: 0.05rem 0.55rem 0.05rem 0.4rem;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--primary) 30%, transparent);
+    background: color-mix(in oklab, var(--primary) 12%, transparent);
+    color: var(--primary);
+    font-weight: 500;
+    line-height: 1.4;
+    text-decoration: none;
+    transition: background-color 150ms ease;
+  }
+
+  .note-md a.note-link:hover {
+    background: color-mix(in oklab, var(--primary) 22%, transparent);
+  }
+
+  .note-md .note-link-icon {
+    width: 0.8em;
+    height: 0.8em;
+    flex: none;
+    opacity: 0.8;
+  }
+
+  .note-md .note-link-label,
+  .note-md .note-link-detail {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .note-md .note-link-detail {
+    max-width: 14rem;
+    font-weight: 400;
+    opacity: 0.7;
+  }
+
+  /* The sender's own bubble is already primary-tinted, so there the chip flips
+     to the foreground tone or it would vanish into its background. */
+  [data-mine] .note-md a.note-link {
+    border-color: color-mix(in oklab, var(--primary-foreground) 35%, transparent);
+    background: color-mix(in oklab, var(--primary-foreground) 16%, transparent);
+    color: var(--primary-foreground);
+  }
+
+  [data-mine] .note-md a.note-link:hover {
+    background: color-mix(in oklab, var(--primary-foreground) 26%, transparent);
   }
 
   .note-md blockquote {

@@ -1,19 +1,20 @@
 "use client";
 
 import { isValidElement, memo, useRef, useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Link2 } from "lucide-react";
 import { all } from "lowlight";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
+import { describeLink } from "@/lib/link-label";
 import { cn } from "@/lib/utils";
 
 /**
- * Renders a note as GitHub-flavored markdown with syntax highlighting for
- * every highlight.js grammar. Raw HTML is never rendered, which keeps notes
- * from the remote peer inert.
+ * Renders a note (or the shared doc's preview) as GitHub-flavored markdown
+ * with syntax highlighting for every highlight.js grammar. Raw HTML is never
+ * rendered, which keeps notes from the remote peer inert.
  */
 export const NoteMarkdown = memo(function NoteMarkdown({ text }: { text: string }) {
   return (
@@ -23,11 +24,7 @@ export const NoteMarkdown = memo(function NoteMarkdown({ text }: { text: string 
         rehypePlugins={[[rehypeHighlight, { languages: all, detect: true }]]}
         components={{
           pre: CodeBlock,
-          a: ({ children, href }) => (
-            <a href={href} target="_blank" rel="noreferrer nofollow">
-              {children}
-            </a>
-          ),
+          a: NoteLink,
         }}
       >
         {text}
@@ -35,6 +32,40 @@ export const NoteMarkdown = memo(function NoteMarkdown({ text }: { text: string 
     </div>
   );
 });
+
+/**
+ * Links render as accent-coloured chips, the way a mention would, instead of
+ * the raw address: a pasted URL is named after its site with the path as a
+ * quieter detail, and a markdown link keeps its own text with the host beside
+ * it. The full URL stays in the tooltip and, of course, in the href. Anything
+ * that is not an absolute web or mail address falls back to a plain link.
+ */
+function NoteLink({ href, children }: { href?: string; children?: React.ReactNode }) {
+  const described = describeLink(href, textOf(children));
+  if (!described) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer nofollow">
+        {children}
+      </a>
+    );
+  }
+  return (
+    <a href={href} target="_blank" rel="noreferrer nofollow" title={href} className="note-link">
+      <Link2 className="note-link-icon" aria-hidden />
+      <span className="note-link-label">{described.bare ? described.label : children}</span>
+      {described.detail ? <span className="note-link-detail">{described.detail}</span> : null}
+    </a>
+  );
+}
+
+/** The plain text inside a rendered markdown node, for comparing with the href. */
+function textOf(node: React.ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement<{ children?: React.ReactNode }>(node)) return textOf(node.props.children);
+  return "";
+}
 
 function CodeBlock({
   children,

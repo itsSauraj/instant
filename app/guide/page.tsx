@@ -214,7 +214,10 @@ export default function GuidePage() {
                 toggle the same things - the code block button turns just the selected text into
                 a block, leaving the prose around it alone. Enter sends; Shift+Enter breaks a line
                 (or steps out of a code block); inside a list or code block Enter keeps editing and
-                Ctrl+Enter sends. What travels to the
+                Ctrl+Enter sends. A link, whether pasted or added from the toolbar, is shown as
+                a chip naming its site - with the path or your own label beside it, and the
+                full address in the tooltip - in notes and in the shared doc alike. What travels
+                to the
                 others is plain markdown, rendered into author-labelled bubbles with typing
                 indicators. Notes exist only in the participants&apos; browsers, for the length of
                 the session - there is no history on any server because no server ever sees them.
