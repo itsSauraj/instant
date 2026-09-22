@@ -137,7 +137,9 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
   // The right-hand drawer: participants (presence pill), invite (header
   // button) or settings (rail button). Null when closed.
   const [sideView, setSideView] = useState<SideView | null>(null);
-  // Modal only when the person opened it themselves; see the knock effect below.
+  // Only matters on a narrow screen, where the pane is a sheet: a scrim when
+  // the person opened it themselves, none when a knock did (see below). On a
+  // wide screen the pane docks beside the content and this is ignored.
   const [sideModal, setSideModal] = useState(true);
   const closeSide = useCallback(() => setSideView(null), []);
   const openParticipants = useCallback(() => {
@@ -157,11 +159,10 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
   // A knock auto-opens the participants panel, because the admit controls live
   // there and nothing else can answer one.
   //
-  // It opens NON-MODAL though. The panel is anchored over the video strip, so
-  // when the host opens it deliberately it gets a scrim -- otherwise it silently
-  // swallows clicks on the tile controls underneath. But a scrim on an
-  // auto-opened panel would let anyone knocking take the host's whole UI
-  // hostage until they dismissed it, which is worse than either problem.
+  // On a phone, where the pane is a sheet, it opens WITHOUT the scrim: a scrim
+  // on an auto-opened sheet would let anyone knocking take the host's whole UI
+  // hostage until they dismissed it. On a wide screen the pane simply docks
+  // beside the content and the question does not arise.
   const knockCount = session.knocks.length;
   const seenKnocks = useRef(0);
   useEffect(() => {
@@ -672,9 +673,11 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
         </TabsContent>
 
         </div>
-      </Tabs>
 
-      {/* The right-hand drawer, one content at a time. */}
+      {/* The right-hand pane, one content at a time. It sits INSIDE the tab
+          row so that on a wide screen it docks beside the content as a column
+          of its own, pushing nothing over and dimming nothing; on a narrow one
+          SidePanel turns it into a sheet. */}
       <ParticipantsPanel
         open={sideView === "participants"}
         modal={sideModal}
@@ -734,6 +737,7 @@ function RoomSession({ roomId, foundAs }: { roomId: string; foundAs: RoomVisibil
           )}
         </SidePanelBody>
       </SidePanel>
+      </Tabs>
 
       {session.phase === "lobby" && !lobbyDismissed ? (
         <LobbyOverlay

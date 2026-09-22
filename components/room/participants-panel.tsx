@@ -124,8 +124,8 @@ export function ParticipantsPanel({
   const headcount = participants.length + (self ? 1 : 0);
 
   return (
-    // The shared right-hand drawer (scrim, Escape, close button); this panel
-    // only supplies the participants content.
+    // The shared right-hand pane (docked on wide screens, a sheet on narrow
+    // ones, with its close button); this panel only supplies the content.
     <SidePanel
       open={open}
       modal={modal}

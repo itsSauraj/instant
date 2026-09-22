@@ -7,21 +7,18 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * The room's one right-hand drawer. Participants, Invite and Settings all
- * render inside it, so there is a single place things "slide in from" and a
- * single idiom for closing them (the X, Escape, or the scrim).
+ * The room's one right-hand pane. Participants, Invite and Settings all
+ * render inside it, so there is a single place things open and a single idiom
+ * for closing them (the X, or the button that opened them).
  *
- * It overlays the room rather than pushing it: the video strip and the tabs
- * keep their geometry, which matters mid-call. On a phone it becomes a
- * full-height sheet from the right edge.
- *
- * `modal` decides whether a scrim dims and blocks the room behind it. The
- * drawer sits over the video strip's per-tile controls, and without a scrim a
- * click there lands on the drawer and the buttons underneath merely appear
- * dead; the scrim makes that visible and gives a click-anywhere-to-close.
- * Callers pass `modal={false}` only when the drawer opened on its own (a
- * knock), because dimming someone's whole UI on another person's action is
- * worse than either problem.
+ * On a wide screen it is a docked column in the tab row, a window beside the
+ * notes/files/video content rather than something floating over it: nothing
+ * is dimmed or blurred, the room stays fully usable, and the pane simply stays
+ * open until it is closed. Below the `lg` breakpoint there is no width to dock
+ * into, so it becomes a full-height sheet from the right edge; only there does
+ * `modal` add a plain (unblurred) scrim with click-to-close and Escape.
+ * Callers pass `modal={false}` when the pane opened on its own (a knock), so
+ * another person's action never blocks the phone's whole UI.
  */
 export function SidePanel({
   open,
@@ -41,10 +38,14 @@ export function SidePanel({
   children: React.ReactNode;
   className?: string;
 }) {
+  // Escape closes the sheet, never the docked window: a window that vanished
+  // because you pressed Escape in the composer would be a bug, not a feature.
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      if (window.matchMedia(DOCKED_QUERY).matches) return;
+      onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -59,17 +60,19 @@ export function SidePanel({
           aria-hidden
           onClick={onClose}
           data-slot="side-panel-scrim"
-          className="fixed inset-0 z-30 bg-black/20 backdrop-blur-[1px]"
+          className="fixed inset-0 z-30 bg-black/30 lg:hidden"
         />
       ) : null}
       <aside
         role="dialog"
-        aria-modal={modal || undefined}
         aria-label={title}
         data-slot="side-panel"
         className={cn(
+          // Sheet (narrow): fixed to the right edge, full height.
           "panel fixed inset-y-0 right-0 z-40 flex w-80 max-w-[85vw] flex-col rounded-none border-l shadow-xl",
           "sm:inset-y-3 sm:right-3 sm:rounded-xl sm:border",
+          // Docked (wide): an ordinary column in the tab row.
+          "lg:static lg:inset-auto lg:z-auto lg:h-full lg:max-w-none lg:shrink-0 lg:rounded-xl lg:border lg:shadow-none",
           className,
         )}
       >
@@ -95,7 +98,10 @@ export function SidePanel({
   );
 }
 
-/** Scrolling body for drawer content that is just a column of controls. */
+/** Tailwind's `lg` breakpoint; at and above it the pane docks. */
+const DOCKED_QUERY = "(min-width: 64rem)";
+
+/** Scrolling body for pane content that is just a column of controls. */
 export function SidePanelBody({
   children,
   className,
