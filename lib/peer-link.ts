@@ -589,11 +589,28 @@ export class PeerLink {
     if (transceiver === this.slots.mic) return "mic";
     if (transceiver === this.slots.shareAudio) return "shareAudio";
     if (transceiver === this.slots.video) return "video";
-    // An extra m-line, from a peer that does not follow this layout. Unknown
-    // audio is attributed to share audio, never to the microphone: a false
-    // "their mic is live" is what offers a host "Mute" for someone already
-    // muted, and removing that is the whole point of the slots.
-    return transceiver.receiver.track.kind === "video" ? "video" : "shareAudio";
+
+    // The peer's slots arrive on transceivers of THEIR making, not on ours: a
+    // transceiver created with addTransceiver is never reused for a remote
+    // m-line (JSEP 5.10 reuses only addTrack ones), so each side ends up with
+    // its own three plus three that carry the other side's. The other side
+    // added theirs in the same fixed order - mic, share audio, video - and
+    // m-line order is creation order, so among the foreign transceivers of a
+    // kind the first audio one is their microphone and the second their shared
+    // desktop audio. Mapping by identity alone filed the peer's microphone
+    // under share audio, into a stream no tile plays.
+    const kind = transceiver.receiver.track.kind;
+    if (kind === "video") return "video";
+    const own = new Set<RTCRtpTransceiver>([this.slots.mic, this.slots.shareAudio, this.slots.video]);
+    const foreignAudio = this.connection
+      .getTransceivers()
+      .filter((t) => !own.has(t) && t.receiver.track.kind === "audio");
+    if (foreignAudio.indexOf(transceiver) === 0) return "mic";
+    // The second foreign audio line is their share audio; anything beyond it
+    // comes from a peer that does not follow this layout and is attributed to
+    // share audio, never to the microphone: a false "their mic is live" is
+    // what offers a host "Mute" for someone already muted.
+    return "shareAudio";
   }
 
   private static live(track: MediaStreamTrack | null): boolean {
@@ -621,18 +638,39 @@ export class PeerLink {
   }
 
   /**
-   * Audio needs nothing but replaceTrack, in both directions. Attaching swaps
-   * the payload with no SDP round trip; `null` stops the RTP flow, and for
-   * audio that is the whole story - the receiver's track goes muted, which is
-   * exactly what its indicator reads. The slot's direction therefore never
-   * changes, so the m-line order every receiver maps roles by is fixed for the
-   * link's life. Video cannot do this; see setVideoTrack.
+   * Attaching or swapping audio is a plain replaceTrack: the payload changes
+   * with no SDP round trip, which is what makes a device switch mid-call free.
+   *
+   * Emptying the slot is not. Merely stopping the RTP flow (replaceTrack(null))
+   * never mutes the receiver's track in Chromium - the same fact setVideoTrack
+   * documents - so a peer who muted would look live to everyone forever.
+   * Removing the sender renegotiates, and the peer's track goes muted, which
+   * is exactly what its indicator reads. The transceiver survives removeTrack,
+   * so the m-line order every receiver maps roles by stays fixed for the
+   * link's life; re-attaching just restores the direction.
    */
   private setAudioSlot(transceiver: RTCRtpTransceiver, track: MediaStreamTrack | null) {
     if (this.destroyed) return;
-    transceiver.sender.replaceTrack(track).catch(() => {
+    const sender = transceiver.sender;
+
+    if (track === null) {
+      if (sender.track) this.removeSender(sender);
+      return;
+    }
+
+    sender.replaceTrack(track).catch(() => {
       // The sender is stopped (link closing): there is nothing left to send.
     });
+    // removeTrack left the slot recvonly and replaceTrack does not touch
+    // direction, so without this nothing would be sent again. A slot that was
+    // never emptied is already sendrecv and this is a no-op.
+    if (transceiver.direction !== "sendrecv") {
+      try {
+        transceiver.direction = "sendrecv";
+      } catch {
+        // Transceiver stopped with the connection; nothing to renegotiate.
+      }
+    }
   }
 
   /**

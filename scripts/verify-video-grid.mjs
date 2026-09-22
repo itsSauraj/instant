@@ -470,8 +470,10 @@ async function sectionTwoUp(browser) {
         return video ? video.className.includes("-scale-x-100") : null;
       });
       check("2-up: self tile is NOT mirrored while screen sharing", shareVideo === false);
+      // The status line under the share says where the camera went while the
+      // screen has the outgoing video slot.
       const hint = await host.page
-        .getByText(/screen share is being sent/i)
+        .getByText(/your camera stays in your own tile/i)
         .isVisible()
         .catch(() => false);
       check("2-up: screen-share-plus-camera hint shown", hint);
